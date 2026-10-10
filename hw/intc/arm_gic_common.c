@@ -325,6 +325,7 @@ static void arm_gic_common_reset_hold(Object *obj, ResetType type)
         for (i = 0; i < s->num_cpu; i++) {
             s->h_hcr[i] = 0;
             s->h_misr[i] = 0;
+            s->h_apr[i] = 0;
         }
     }
 

@@ -57,6 +57,7 @@ static void bcm2712_realize(DeviceState *dev, Error **errp)
     qdev_prop_set_uint32(gic, "revision", 2);
     qdev_prop_set_uint32(gic, "num-cpu", BCM2712_NCPUS);
     qdev_prop_set_uint32(gic, "num-irq", BCM2712_GIC_IRQS);
+    qdev_prop_set_uint32(gic, "num-priority-bits", 5);
     qdev_prop_set_bit(gic, "has-virtualization-extensions", true);
     if (!sysbus_realize(gicbus, errp)) {
         return;
@@ -68,7 +69,8 @@ static void bcm2712_realize(DeviceState *dev, Error **errp)
     for (unsigned i = 0; i < BCM2712_NCPUS; i++) {
         DeviceState *cpu = DEVICE(&s->cpu[i]);
 
-        sysbus_mmio_map(gicbus, 4 + i, BCM2712_GIC_HYP + 0x1000 + i * 0x200);
+        sysbus_mmio_map(gicbus, 4 + BCM2712_NCPUS + i,
+                        BCM2712_GIC_HYP + 0x1000 + i * 0x200);
         sysbus_connect_irq(gicbus, i, qdev_get_gpio_in(cpu, ARM_CPU_IRQ));
         sysbus_connect_irq(gicbus, i + BCM2712_NCPUS,
                            qdev_get_gpio_in(cpu, ARM_CPU_FIQ));

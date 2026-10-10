@@ -1887,9 +1887,9 @@ static uint32_t gic_compute_elrsr(GICState *s, int cpu, int lr_start)
     return ret;
 }
 
-static void gic_vmcr_write(GICState *s, uint32_t value, MemTxAttrs attrs)
+static void gic_vmcr_write(GICState *s, int vcpu, uint32_t value,
+                           MemTxAttrs attrs)
 {
-    int vcpu = gic_get_current_vcpu(s);
     uint32_t ctlr;
     uint32_t abpr;
     uint32_t bpr;
@@ -1988,7 +1988,7 @@ static MemTxResult gic_hyp_write(void *opaque, int cpu, hwaddr addr,
         break;
 
     case A_GICH_VMCR: /* Virtual Machine Control */
-        gic_vmcr_write(s, value, attrs);
+        gic_vmcr_write(s, vcpu, value, attrs);
         break;
 
     case A_GICH_APR: /* Active Priorities */
@@ -2054,7 +2054,7 @@ static MemTxResult gic_do_hyp_write(void *opaque, hwaddr addr,
     GICState *s = *backref;
     int id = (backref - s->backref);
 
-    return gic_hyp_write(s, id + GIC_NCPU, addr, value, attrs);
+    return gic_hyp_write(s, id, addr, value, attrs);
 
 }
 
