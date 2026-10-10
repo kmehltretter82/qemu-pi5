@@ -80,6 +80,9 @@ class Aarch64Raspi5Machine(LinuxKernelTest):
     def test_raspi500(self):
         self.boot_board('raspi500', 'Raspberry Pi 500')
 
+    def test_raspi500p(self):
+        self.boot_board('raspi500p', 'Raspberry Pi 500+')
+
 
 class Aarch64Raspi5SDMachine(LinuxKernelTest):
     """Exercise Linux's BCM2712 SDHCI driver and persistent card I/O."""

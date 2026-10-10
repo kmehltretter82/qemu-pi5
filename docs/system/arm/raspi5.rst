@@ -1,9 +1,9 @@
-Raspberry Pi 5 and Pi 500 (experimental)
-=======================================
+Raspberry Pi 5, Pi 500 and Pi 500+ (experimental)
+===============================================
 
 This downstream fork provides ``raspi5b`` (alias ``raspi5``) and
-``raspi500`` machines. They implement an initial BCM2712 core platform for
-direct Linux kernel boot. They do not yet boot a Raspberry Pi OS SD image
+``raspi500`` and ``raspi500p`` machines. They implement an initial BCM2712
+core platform for direct Linux kernel boot. They do not yet boot a Raspberry Pi OS SD image
 or the Raspberry Pi EEPROM/VideoCore firmware.
 
 Implemented
@@ -11,7 +11,7 @@ Implemented
 
 * Four Cortex-A76 CPUs, with MPIDR affinities 0x000, 0x100, 0x200, 0x300.
 * RAM at physical address zero. Pi 5 supports 1, 2, 4, 8 or 16 GiB
-  (default 2 GiB); Pi 500 uses 8 GiB.
+  (default 2 GiB); Pi 500 uses 8 GiB and Pi 500+ uses 16 GiB.
 * GICv2 distributor, CPU and virtualization interfaces at the BCM2712
   physical addresses, including per-core GICH aliases and five-bit priorities.
 * Device-tree cache topology: private 64 KiB instruction/data L1s, private
@@ -45,7 +45,8 @@ console and initramfs drivers built in::
     -kernel Image -initrd rootfs.cpio.gz \
     -append 'console=ttyAMA0,115200 earlycon=pl011,mmio32,0x107d001000 rdinit=/bin/sh'
 
-For the Pi 500, use ``-M raspi500 -m 8G``. Both machines require four CPUs;
+For the Pi 500, use ``-M raspi500 -m 8G``; for the Pi 500+, use
+``-M raspi500p -m 16G``. All three machines require four CPUs;
 this is the default, so ``-smp`` is optional. The first serial backend is
 the SoC debug UART, not an RP1 UART on the GPIO header.
 
@@ -75,7 +76,7 @@ access/reset, binary sector reads/writes and persistent backend contents,
 and independent RAM locations below and above 4 GiB. Separate GIC tests
 check per-core virtualization state, virtual interrupts, maintenance PPI25,
 priority precision and immediate output deassertion during reset. The
-functional tests boot both boards with four CPUs, check timer frequency,
+functional tests boot all three boards with four CPUs, check timer frequency,
 cache topology and PMU discovery, execute serial-console commands and
 power off through PSCI. SD tests bind Linux's ``sdhci-brcmstb``
 driver, verify sector hashes and writes, then read the persisted bytes in
@@ -146,6 +147,7 @@ frequency was also checked against boot logs captured from a physical Pi 500.
 * https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/broadcom/bcm2712.dtsi
 * https://github.com/raspberrypi/linux/blob/4103a989a46196239b830bd07693277e42b8f992/arch/arm64/boot/dts/broadcom/bcm2712-ds.dtsi
 * https://www.raspberrypi.com/documentation/computers/processors.html#bcm2712
+* https://www.raspberrypi.com/products/raspberry-pi-500-plus/
 * https://github.com/torvalds/linux/blob/master/drivers/mmc/host/sdhci-brcmstb.c
 * https://documentation-service.arm.com/static/5e8f15e27100066a414f7424
 

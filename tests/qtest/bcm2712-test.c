@@ -78,11 +78,14 @@ static void test_uart_irq(gconstpointer machine)
     qtest_quit(qts);
 }
 
-static void test_ram(void)
+static void test_ram(gconstpointer machine)
 {
-    QTestState *qts = qtest_init("-machine raspi500 -S -serial null");
+    QTestState *qts = qtest_initf("-machine %s -S -serial null",
+                                (char *)machine);
+    const uint64_t size = !strcmp(machine, "raspi500p") ?
+                         UINT64_C(0x400000000) : UINT64_C(0x200000000);
     const uint64_t addresses[] = {
-        0x1000, UINT64_C(0x100001000), UINT64_C(0x1fffffff8),
+        0x1000, UINT64_C(0x100001000), size - 8,
     };
 
     /* Distinct patterns detect a missing or aliased upper RAM region. */
@@ -413,10 +416,15 @@ int main(int argc, char **argv)
     qtest_add_data_func("/bcm2712/raspi5b/uart-irq", "raspi5b", test_uart_irq);
     qtest_add_data_func("/bcm2712/raspi500/uart-irq", "raspi500",
                         test_uart_irq);
-    qtest_add_func("/bcm2712/raspi500/ram", test_ram);
+    qtest_add_data_func("/bcm2712/raspi500/ram", "raspi500", test_ram);
+    qtest_add_data_func("/bcm2712/raspi500p/ram", "raspi500p", test_ram);
+    qtest_add_data_func("/bcm2712/raspi500p/uart-irq", "raspi500p",
+                        test_uart_irq);
     qtest_add_data_func("/bcm2712/raspi5b/sd-registers", "raspi5b",
                         test_sd_registers);
     qtest_add_data_func("/bcm2712/raspi500/sd-registers", "raspi500",
+                        test_sd_registers);
+    qtest_add_data_func("/bcm2712/raspi500p/sd-registers", "raspi500p",
                         test_sd_registers);
     qtest_add_data_func("/bcm2712/raspi5b/sd-card", "raspi5b", test_sd_card);
     qtest_add_data_func("/bcm2712/raspi500/sd-card", "raspi500", test_sd_card);

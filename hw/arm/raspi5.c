@@ -29,7 +29,7 @@ struct Raspi5MachineClass {
     const char *compatible;
     size_t compatible_size;
     const char *model;
-    bool pi500;
+    uint64_t fixed_ram_size;
 };
 
 static void *raspi5_get_dtb(const struct arm_boot_info *info, int *size)
@@ -205,10 +205,15 @@ static void raspi5_init(MachineState *machine)
     uint64_t ram = machine->ram_size;
     DriveInfo *di;
 
-    if (ram < GiB || ram > 16 * GiB || (ram & (ram - 1)) ||
-        (rmc->pi500 && ram != 8 * GiB)) {
-        error_report("%s requires %s RAM", MACHINE_GET_CLASS(machine)->name,
-                     rmc->pi500 ? "8 GiB" : "1, 2, 4, 8 or 16 GiB");
+    if (rmc->fixed_ram_size && ram != rmc->fixed_ram_size) {
+        error_report("%s requires %" PRIu64 " GiB RAM",
+                     MACHINE_GET_CLASS(machine)->name,
+                     rmc->fixed_ram_size / GiB);
+        exit(1);
+    }
+    if (ram < GiB || ram > 16 * GiB || (ram & (ram - 1))) {
+        error_report("%s requires 1, 2, 4, 8 or 16 GiB RAM",
+                     MACHINE_GET_CLASS(machine)->name);
         exit(1);
     }
     if (machine->firmware) {
@@ -279,7 +284,20 @@ static void raspi500_class_init(ObjectClass *oc, const void *data)
     rmc->compatible = "raspberrypi,500\0brcm,bcm2712";
     rmc->compatible_size = sizeof("raspberrypi,500\0brcm,bcm2712");
     rmc->model = "Raspberry Pi 500 (QEMU experimental)";
-    rmc->pi500 = true;
+    rmc->fixed_ram_size = 8 * GiB;
+}
+
+static void raspi500p_class_init(ObjectClass *oc, const void *data)
+{
+    MachineClass *mc = MACHINE_CLASS(oc);
+    Raspi5MachineClass *rmc = RASPI5_BASE_MACHINE_CLASS(oc);
+
+    mc->desc = "Raspberry Pi 500+ (experimental core platform)";
+    mc->default_ram_size = 16 * GiB;
+    rmc->compatible = "raspberrypi,500\0brcm,bcm2712";
+    rmc->compatible_size = sizeof("raspberrypi,500\0brcm,bcm2712");
+    rmc->model = "Raspberry Pi 500+ (QEMU experimental)";
+    rmc->fixed_ram_size = 16 * GiB;
 }
 
 static const TypeInfo raspi5_types[] = {
@@ -294,6 +312,11 @@ static const TypeInfo raspi5_types[] = {
         .name = MACHINE_TYPE_NAME("raspi5b"),
         .parent = TYPE_RASPI5_BASE_MACHINE,
         .class_init = raspi5b_class_init,
+        .interfaces = aarch64_machine_interfaces,
+    }, {
+        .name = MACHINE_TYPE_NAME("raspi500p"),
+        .parent = TYPE_RASPI5_BASE_MACHINE,
+        .class_init = raspi500p_class_init,
         .interfaces = aarch64_machine_interfaces,
     }, {
         .name = MACHINE_TYPE_NAME("raspi500"),
