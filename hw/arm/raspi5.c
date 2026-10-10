@@ -10,7 +10,9 @@
 #include "hw/arm/bcm2712.h"
 #include "hw/arm/boot.h"
 #include "hw/arm/machines-qom.h"
+#include "hw/core/qdev-properties.h"
 #include "system/address-spaces.h"
+#include "system/blockdev.h"
 #include "system/device_tree.h"
 
 #define TYPE_RASPI5_BASE_MACHINE MACHINE_TYPE_NAME("raspi5-base")
@@ -37,11 +39,15 @@ static void *raspi5_get_dtb(const struct arm_boot_info *info, int *size)
     void *fdt = create_device_tree(size);
     uint32_t gic_phandle = qemu_fdt_alloc_phandle(fdt);
     uint32_t uartclk_phandle = qemu_fdt_alloc_phandle(fdt);
+    uint32_t sdclk_phandle = qemu_fdt_alloc_phandle(fdt);
     const char uart_compat[] = "arm,pl011\0arm,primecell";
     const char clock_names[] = "uartclk\0apb_pclk";
     const char psci_compat[] = "arm,psci-1.0\0arm,psci-0.2";
+    const char sd_compat[] = "brcm,bcm2712-sdhci\0brcm,sdhci-brcmstb";
+    const char sd_reg_names[] = "host\0cfg";
     const char *gic = "/interrupt-controller@107fff9000";
     const char *uart = "/serial@107d001000";
+    const char *sd = "/mmc@1000fff000";
     /* This is deliberately a minimal DT, describing only modeled devices. */
     qemu_fdt_setprop(fdt, "/", "compatible", rmc->compatible,
                      rmc->compatible_size);
@@ -53,6 +59,7 @@ static void *raspi5_get_dtb(const struct arm_boot_info *info, int *size)
     qemu_fdt_setprop_string(fdt, "/chosen", "stdout-path", uart);
     qemu_fdt_add_subnode(fdt, "/aliases");
     qemu_fdt_setprop_string(fdt, "/aliases", "serial0", uart);
+    qemu_fdt_setprop_string(fdt, "/aliases", "mmc0", sd);
 
     qemu_fdt_add_subnode(fdt, "/memory@0");
     qemu_fdt_setprop_string(fdt, "/memory@0", "device_type", "memory");
@@ -62,14 +69,48 @@ static void *raspi5_get_dtb(const struct arm_boot_info *info, int *size)
     qemu_fdt_add_subnode(fdt, "/cpus");
     qemu_fdt_setprop_cell(fdt, "/cpus", "#address-cells", 1);
     qemu_fdt_setprop_cell(fdt, "/cpus", "#size-cells", 0);
-    for (int i = BCM2712_NCPUS - 1; i >= 0; i--) {
-        g_autofree char *node = g_strdup_printf("/cpus/cpu@%x", i << 8);
+    {
+        const char *l3 = "/cpus/l3-cache";
+        uint32_t l3_phandle = qemu_fdt_alloc_phandle(fdt);
 
-        qemu_fdt_add_subnode(fdt, node);
-        qemu_fdt_setprop_string(fdt, node, "device_type", "cpu");
-        qemu_fdt_setprop_string(fdt, node, "compatible", "arm,cortex-a76");
-        qemu_fdt_setprop_cell(fdt, node, "reg", i << 8);
-        qemu_fdt_setprop_string(fdt, node, "enable-method", "psci");
+        /* Match Linux's bcm2712.dtsi: private L2s and a shared external L3. */
+        qemu_fdt_add_subnode(fdt, l3);
+        qemu_fdt_setprop_string(fdt, l3, "compatible", "cache");
+        qemu_fdt_setprop_cell(fdt, l3, "phandle", l3_phandle);
+        qemu_fdt_setprop_cell(fdt, l3, "cache-size", 0x200000);
+        qemu_fdt_setprop_cell(fdt, l3, "cache-line-size", 64);
+        qemu_fdt_setprop_cell(fdt, l3, "cache-sets", 2048);
+        qemu_fdt_setprop_cell(fdt, l3, "cache-level", 3);
+        qemu_fdt_setprop(fdt, l3, "cache-unified", NULL, 0);
+
+        for (int i = BCM2712_NCPUS - 1; i >= 0; i--) {
+            g_autofree char *node = g_strdup_printf("/cpus/cpu@%x", i << 8);
+            g_autofree char *l2 = g_strdup_printf("%s/l2-cache", node);
+            uint32_t l2_phandle = qemu_fdt_alloc_phandle(fdt);
+
+            qemu_fdt_add_subnode(fdt, node);
+            qemu_fdt_setprop_string(fdt, node, "device_type", "cpu");
+            qemu_fdt_setprop_string(fdt, node, "compatible", "arm,cortex-a76");
+            qemu_fdt_setprop_cell(fdt, node, "reg", i << 8);
+            qemu_fdt_setprop_string(fdt, node, "enable-method", "psci");
+            qemu_fdt_setprop_cell(fdt, node, "d-cache-size", 0x10000);
+            qemu_fdt_setprop_cell(fdt, node, "d-cache-line-size", 64);
+            qemu_fdt_setprop_cell(fdt, node, "d-cache-sets", 256);
+            qemu_fdt_setprop_cell(fdt, node, "i-cache-size", 0x10000);
+            qemu_fdt_setprop_cell(fdt, node, "i-cache-line-size", 64);
+            qemu_fdt_setprop_cell(fdt, node, "i-cache-sets", 256);
+            qemu_fdt_setprop_cell(fdt, node, "next-level-cache", l2_phandle);
+
+            qemu_fdt_add_subnode(fdt, l2);
+            qemu_fdt_setprop_string(fdt, l2, "compatible", "cache");
+            qemu_fdt_setprop_cell(fdt, l2, "phandle", l2_phandle);
+            qemu_fdt_setprop_cell(fdt, l2, "cache-size", 0x80000);
+            qemu_fdt_setprop_cell(fdt, l2, "cache-line-size", 64);
+            qemu_fdt_setprop_cell(fdt, l2, "cache-sets", 1024);
+            qemu_fdt_setprop_cell(fdt, l2, "cache-level", 2);
+            qemu_fdt_setprop(fdt, l2, "cache-unified", NULL, 0);
+            qemu_fdt_setprop_cell(fdt, l2, "next-level-cache", l3_phandle);
+        }
     }
 
     qemu_fdt_add_subnode(fdt, "/psci");
@@ -111,6 +152,28 @@ static void *raspi5_get_dtb(const struct arm_boot_info *info, int *size)
                            uartclk_phandle);
     qemu_fdt_setprop(fdt, uart, "clock-names", clock_names,
                      sizeof(clock_names));
+
+    qemu_fdt_add_subnode(fdt, "/sd-clock");
+    qemu_fdt_setprop_string(fdt, "/sd-clock", "compatible", "fixed-clock");
+    qemu_fdt_setprop_cell(fdt, "/sd-clock", "#clock-cells", 0);
+    qemu_fdt_setprop_cell(fdt, "/sd-clock", "clock-frequency",
+                           BCM2712_SD_CLOCK);
+    qemu_fdt_setprop_cell(fdt, "/sd-clock", "phandle", sdclk_phandle);
+    qemu_fdt_add_subnode(fdt, sd);
+    qemu_fdt_setprop(fdt, sd, "compatible", sd_compat, sizeof(sd_compat));
+    qemu_fdt_setprop_sized_cells(fdt, sd, "reg",
+                                2, BCM2712_SDIO1, 2, 0x260,
+                                2, BCM2712_SDIO1_CFG, 2, 0x200);
+    qemu_fdt_setprop(fdt, sd, "reg-names", sd_reg_names, sizeof(sd_reg_names));
+    qemu_fdt_setprop_cells(fdt, sd, "interrupts", 0, BCM2712_SDIO1_SPI, 4);
+    qemu_fdt_setprop_cell(fdt, sd, "clocks", sdclk_phandle);
+    qemu_fdt_setprop_string(fdt, sd, "clock-names", "sw_sdio");
+    qemu_fdt_setprop_cell(fdt, sd, "bus-width", 4);
+    qemu_fdt_setprop_cell(fdt, sd, "max-frequency", 50000000);
+    qemu_fdt_setprop(fdt, sd, "sd-highspeed", NULL, 0);
+    /* The modeled slot is wired directly, without a pin multiplexer. */
+    qemu_fdt_setprop_string(fdt, sd, "pinctrl-names", "default");
+    qemu_fdt_setprop(fdt, sd, "pinctrl-0", NULL, 0);
     return fdt;
 }
 
@@ -119,6 +182,7 @@ static void raspi5_init(MachineState *machine)
     Raspi5MachineState *s = RASPI5_BASE_MACHINE(machine);
     Raspi5MachineClass *rmc = RASPI5_BASE_MACHINE_GET_CLASS(machine);
     uint64_t ram = machine->ram_size;
+    DriveInfo *di;
 
     if (ram < GiB || ram > 16 * GiB || (ram & (ram - 1)) ||
         (rmc->pi500 && ram != 8 * GiB)) {
@@ -134,6 +198,16 @@ static void raspi5_init(MachineState *machine)
     memory_region_add_subregion(get_system_memory(), 0, machine->ram);
     object_initialize_child(OBJECT(machine), "soc", &s->soc, TYPE_BCM2712);
     sysbus_realize(SYS_BUS_DEVICE(&s->soc), &error_fatal);
+
+    /* Leave an empty slot unless a legacy SD backend is supplied. */
+    di = drive_get(IF_SD, 0, 0);
+    if (di) {
+        DeviceState *card = qdev_new(TYPE_SD_CARD);
+
+        qdev_prop_set_drive_err(card, "drive", blk_by_legacy_dinfo(di),
+                                &error_fatal);
+        qdev_realize_and_unref(card, s->soc.sdio1.bus, &error_fatal);
+    }
 
     s->bootinfo.ram_size = ram;
     s->bootinfo.board_id = -1;
@@ -158,6 +232,7 @@ static void raspi5_base_class_init(ObjectClass *oc, const void *data)
     mc->no_parallel = true;
     mc->no_floppy = true;
     mc->no_cdrom = true;
+    mc->block_default_type = IF_SD;
 }
 
 static void raspi5b_class_init(ObjectClass *oc, const void *data)

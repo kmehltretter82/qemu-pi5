@@ -8,8 +8,8 @@ Experimental Raspberry Pi 5 / 500 fork
 This fork starts from QEMU v11.1.0 and adds an experimental BCM2712 core
 platform on the ``pi5-dev`` branch. The ``raspi5b`` and ``raspi500`` machines
 support direct Linux kernel/initramfs boot with four Cortex-A76 CPUs and a
-debug serial console. SD-card boot, RP1, networking, USB and graphics are
-not implemented yet.
+debug serial console and SD-card storage. Firmware boot, RP1, networking,
+USB and graphics are not implemented yet.
 
 See `the Pi 5 / 500 machine documentation <docs/system/arm/raspi5.rst>`_
 for build/run instructions, tests, limitations and development provenance.

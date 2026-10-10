@@ -1,5 +1,5 @@
 /*
- * Experimental BCM2712 core platform: CPU cluster, GIC and debug UART.
+ * Experimental BCM2712 platform: CPU cluster, GIC, debug UART and SDIO1.
  * Register addresses and interrupts follow Linux's bcm2712.dtsi.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -30,6 +30,7 @@ static void bcm2712_init(Object *obj)
     }
     object_initialize_child(obj, "gic", &s->gic, TYPE_ARM_GIC);
     object_initialize_child(obj, "uart10", &s->uart10, TYPE_PL011);
+    object_initialize_child(obj, "sdio1", &s->sdio1, TYPE_BCM2712_SDHCI);
 }
 
 static void bcm2712_realize(DeviceState *dev, Error **errp)
@@ -94,6 +95,14 @@ static void bcm2712_realize(DeviceState *dev, Error **errp)
     sysbus_mmio_map(SYS_BUS_DEVICE(uart), 0, BCM2712_UART10);
     sysbus_connect_irq(SYS_BUS_DEVICE(uart), 0,
                        qdev_get_gpio_in(gic, BCM2712_UART10_SPI));
+
+    if (!sysbus_realize(SYS_BUS_DEVICE(&s->sdio1), errp)) {
+        return;
+    }
+    sysbus_mmio_map(SYS_BUS_DEVICE(&s->sdio1), 0, BCM2712_SDIO1);
+    sysbus_mmio_map(SYS_BUS_DEVICE(&s->sdio1), 1, BCM2712_SDIO1_CFG);
+    sysbus_connect_irq(SYS_BUS_DEVICE(&s->sdio1), 0,
+                       qdev_get_gpio_in(gic, BCM2712_SDIO1_SPI));
 }
 
 static void bcm2712_class_init(ObjectClass *oc, const void *data)

@@ -8,6 +8,7 @@
 #include "hw/core/sysbus.h"
 #include "hw/intc/arm_gic.h"
 #include "hw/char/pl011.h"
+#include "hw/sd/bcm2712_sdhci.h"
 #include "target/arm/cpu.h"
 
 #define TYPE_BCM2712 "bcm2712"
@@ -24,12 +25,16 @@ OBJECT_DECLARE_SIMPLE_TYPE(BCM2712State, BCM2712)
 #define BCM2712_UART10_SPI      121
 #define BCM2712_UART_CLOCK      9216000
 #define BCM2712_COUNTER_HZ      54000000
+#define BCM2712_SDIO1           UINT64_C(0x1000fff000)
+#define BCM2712_SDIO1_CFG       UINT64_C(0x1000fff400)
+#define BCM2712_SDIO1_SPI       273
 
 struct BCM2712State {
     SysBusDevice parent_obj;
     ARMCPU cpu[BCM2712_NCPUS];
     GICState gic;
     PL011State uart10;
+    BCM2712SDHCIState sdio1;
 };
 
 #endif

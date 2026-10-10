@@ -364,6 +364,7 @@ config RASPI5
     select ARM_GIC
     select PL011
     select DEVICE_TREE
+    select BCM2712_SDHCI
 
 config RASPI
     bool

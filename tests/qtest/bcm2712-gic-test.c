@@ -21,7 +21,8 @@ static uint64_t gich_alias(unsigned cpu)
 
 static QTestState *gic_init(const char *machine)
 {
-    QTestState *qts = qtest_initf("-machine %s -serial null", machine);
+    /* Register tests keep the dummy CPUs stopped throughout their lifetime. */
+    QTestState *qts = qtest_initf("-machine %s -S -serial null", machine);
 
     qtest_irq_intercept_out_named(qts, "/machine/soc/gic", "sysbus-irq");
     return qts;
@@ -133,7 +134,7 @@ static void test_maintenance_irq(gconstpointer machine)
 
     /* Outgoing intercepts disconnect wires; use CPU0's input on a new VM. */
     qtest_quit(qts);
-    qts = qtest_initf("-machine %s -serial null", (const char *)machine);
+    qts = qtest_initf("-machine %s -S -serial null", (const char *)machine);
     qtest_irq_intercept_in(qts, "/machine/soc/cpu0");
 
     /* The maintenance output is wired back to CPU0's physical PPI25. */
