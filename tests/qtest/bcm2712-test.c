@@ -305,6 +305,31 @@ static void test_sd_card(gconstpointer machine)
     unlink(path);
 }
 
+static void sd_adma_transfer(QTestState *qts, uint32_t sector, bool read,
+                             uint64_t table, unsigned blocks)
+{
+    unsigned mode = (read ? 0x13 : 0x03) | (blocks > 1 ? 0x24 : 0);
+    unsigned command = blocks > 1 ? (read ? 18 : 25) : (read ? 17 : 24);
+
+    qtest_writeb(qts, SDIO1 + 0x28, 0x18); /* Select ADMA2-64. */
+    g_assert_cmphex(qtest_readb(qts, SDIO1 + 0x28) & 0x18, ==, 0x18);
+    qtest_writew(qts, SDIO1 + 4, SD_SECTOR_SIZE);
+    qtest_writew(qts, SDIO1 + 6, blocks);
+    qtest_writel(qts, SDIO1 + SD_ADMA_ADDR, table);
+    qtest_writel(qts, SDIO1 + SD_ADMA_ADDR + 4, table >> 32);
+    g_assert_cmphex(qtest_readq(qts, SDIO1 + SD_ADMA_ADDR), ==, table);
+    qtest_writew(qts, SDIO1 + 0xc, mode);
+    sd_command(qts, command, sector, 0x3a);
+    for (unsigned i = 0; i < 100 &&
+         !(qtest_readw(qts, SDIO1 + SD_STATUS) & 2); i++) {
+        qtest_clock_step(qts, 1000000);
+    }
+    g_assert_cmphex(qtest_readl(qts, SDIO1 + SD_STATUS), ==, 3);
+    g_assert_cmphex(qtest_readb(qts, SDIO1 + SD_ADMA_ERROR), ==, 0);
+    g_assert_cmphex(qtest_readw(qts, SDIO1 + 6), ==, 0);
+    g_assert_cmphex(qtest_readl(qts, SDIO1 + SD_PRESENT) & 0xf06, ==, 0);
+}
+
 static void sd_adma_sector(QTestState *qts, uint32_t sector, bool read,
                            uint64_t table, const uint64_t buffers[2])
 {
@@ -319,20 +344,7 @@ static void sd_adma_sector(QTestState *qts, uint32_t sector, bool read,
         stq_le_p(descriptor + 4, buffers[i]);
     }
     qtest_memwrite(qts, table, descriptors, sizeof(descriptors));
-    qtest_writeb(qts, SDIO1 + 0x28, 0x18); /* Select ADMA2-64. */
-    g_assert_cmphex(qtest_readb(qts, SDIO1 + 0x28) & 0x18, ==, 0x18);
-    qtest_writew(qts, SDIO1 + 4, SD_SECTOR_SIZE);
-    qtest_writew(qts, SDIO1 + 6, 1);
-    qtest_writel(qts, SDIO1 + SD_ADMA_ADDR, table);
-    qtest_writel(qts, SDIO1 + SD_ADMA_ADDR + 4, table >> 32);
-    g_assert_cmphex(qtest_readq(qts, SDIO1 + SD_ADMA_ADDR), ==, table);
-    /* DMA, block count enabled, one block, read or write. */
-    qtest_writew(qts, SDIO1 + 0xc, read ? 0x13 : 0x03);
-    sd_command(qts, read ? 17 : 24, sector, 0x3a);
-    g_assert_cmphex(qtest_readw(qts, SDIO1 + SD_STATUS), ==, 3);
-    g_assert_cmphex(qtest_readb(qts, SDIO1 + SD_ADMA_ERROR), ==, 0);
-    g_assert_cmphex(qtest_readw(qts, SDIO1 + 6), ==, 0);
-    g_assert_cmphex(qtest_readl(qts, SDIO1 + SD_PRESENT) & 0xf06, ==, 0);
+    sd_adma_transfer(qts, sector, read, table, 1);
 }
 
 static void test_sd_adma64(void)
@@ -410,6 +422,158 @@ static void test_sd_adma64(void)
     unlink(path);
 }
 
+#define SG_BYTES 4096
+#define SG_GUARD 64
+#define SG_ROUNDS 8
+
+static const struct {
+    uint64_t address;
+    unsigned length;
+} sd_sg[] = {
+    /* Cross an 8 GiB boundary, cross a page, and mix high and low RAM. */
+    { UINT64_C(0x1ffffff80), 256 },
+    { UINT64_C(0x200010fc0), 768 },
+    { UINT64_C(0x300020000), 2048 },
+    { UINT64_C(0x000030020), 1024 },
+};
+
+static void sd_sg_buffers(QTestState *qts, const uint8_t *data, bool fill)
+{
+    uint8_t actual[SG_BYTES];
+    uint8_t guard[SG_GUARD];
+    unsigned offset = 0;
+
+    memset(guard, 0xd3, sizeof(guard));
+    for (unsigned i = 0; i < G_N_ELEMENTS(sd_sg); i++) {
+        uint64_t addr = sd_sg[i].address;
+        unsigned len = sd_sg[i].length;
+
+        if (fill) {
+            qtest_memwrite(qts, addr - SG_GUARD, guard, sizeof(guard));
+            qtest_memwrite(qts, addr + len, guard, sizeof(guard));
+            qtest_memwrite(qts, addr, data + offset, len);
+            if (addr > UINT32_MAX) {
+                qtest_memset(qts, addr & UINT32_MAX, 0xa5, len);
+            }
+        } else {
+            qtest_memread(qts, addr, actual, len);
+            g_assert_cmpmem(actual, len, data + offset, len);
+            qtest_memread(qts, addr - SG_GUARD, actual, SG_GUARD);
+            g_assert_cmpmem(actual, SG_GUARD, guard, sizeof(guard));
+            qtest_memread(qts, addr + len, actual, SG_GUARD);
+            g_assert_cmpmem(actual, SG_GUARD, guard, sizeof(guard));
+            if (addr > UINT32_MAX) {
+                qtest_memread(qts, addr & UINT32_MAX, actual, len);
+                for (unsigned j = 0; j < len; j++) {
+                    g_assert_cmphex(actual[j], ==, 0xa5);
+                }
+            }
+        }
+        offset += len;
+    }
+    g_assert_cmpuint(offset, ==, SG_BYTES);
+}
+
+static void test_sd_adma64_sg(void)
+{
+    /* Both tables straddle pages and reside above 8 GiB. */
+    const uint64_t table = UINT64_C(0x2ffffbffc);
+    const uint64_t linked = UINT64_C(0x300008ff8);
+    uint8_t head[24] = {0};
+    uint8_t tail[48] = {0};
+    uint8_t source[SG_BYTES];
+    uint8_t written[SG_BYTES];
+    uint8_t actual[SG_BYTES];
+    uint8_t empty[SG_BYTES] = {0};
+    g_autofree char *path = NULL;
+    g_autoptr(GError) error = NULL;
+    QTestState *qts;
+    int fd = g_file_open_tmp("bcm2712-adma-sg-XXXXXX", &path, &error);
+
+    g_assert_no_error(error);
+    g_assert_cmpint(fd, >=, 0);
+    g_assert_cmpint(ftruncate(fd, SD_CARD_SIZE), ==, 0);
+    for (unsigned i = 0; i < SG_BYTES; i++) {
+        source[i] = i * 43 + (i >> 8) * 17 + 19;
+    }
+    g_assert_cmpint(pwrite(fd, source, sizeof(source), 3 * SD_SECTOR_SIZE), ==,
+                    sizeof(source));
+    close(fd);
+    qts = qtest_initf("-machine raspi500p -serial null "
+                      "-drive if=sd,file=%s,format=raw", path);
+    sd_card_init(qts);
+    qtest_writel(qts, SDIO1 + SD_STATUS, 0xffffffff);
+    enable_gic_irq(qts, SD_IRQ);
+    qtest_writew(qts, SDIO1 + SD_SIGNAL, 2); /* Transfer-complete IRQ only. */
+
+    stw_le_p(head, 0x21); /* Valid transfer, continued in the linked table. */
+    stw_le_p(head + 2, sd_sg[0].length);
+    stq_le_p(head + 4, sd_sg[0].address);
+    stw_le_p(head + 12, 0x31); /* Valid link, full 64-bit table address. */
+    stq_le_p(head + 16, linked);
+    tail[0] = 1; /* Valid NOP; also exercises the deferred DMA timer. */
+    for (unsigned i = 1; i < G_N_ELEMENTS(sd_sg); i++) {
+        uint8_t *descriptor = tail + i * 12;
+
+        stw_le_p(descriptor, i == G_N_ELEMENTS(sd_sg) - 1 ? 0x23 : 0x21);
+        stw_le_p(descriptor + 2, sd_sg[i].length);
+        stq_le_p(descriptor + 4, sd_sg[i].address);
+    }
+    qtest_memwrite(qts, table, head, sizeof(head));
+    qtest_memwrite(qts, linked, tail, sizeof(tail));
+    qtest_memset(qts, table & UINT32_MAX, 0, sizeof(head));
+    qtest_memset(qts, linked & UINT32_MAX, 0, sizeof(tail));
+
+    for (unsigned round = 0; round < SG_ROUNDS; round++) {
+        unsigned sector = 64 + round * (SG_BYTES / SD_SECTOR_SIZE);
+
+        for (unsigned i = 0; i < SG_BYTES; i++) {
+            written[i] = i * 29 + (i >> 8) * 31 + round * 13 + 5;
+        }
+        for (unsigned op = 0; op < 3; op++) {
+            bool read = op != 1;
+            const uint8_t *expected = op == 0 ? source : written;
+
+            sd_sg_buffers(qts, read ? empty : written, true);
+            g_assert_cmphex(qtest_readl(qts, GICC + 0xc), ==, 1023);
+            sd_adma_transfer(qts, op == 0 ? 3 : sector, read, table,
+                              SG_BYTES / SD_SECTOR_SIZE);
+            sd_sg_buffers(qts, expected, false);
+            g_assert_cmphex(qtest_readl(qts, GICC + 0xc), ==, SD_IRQ);
+            qtest_writew(qts, SDIO1 + SD_STATUS, 2);
+            qtest_writel(qts, GICC + 0x10, SD_IRQ);
+            g_assert_cmphex(qtest_readl(qts, GICC + 0xc), ==, 1023);
+        }
+    }
+    qtest_memread(qts, table, actual, sizeof(head));
+    g_assert_cmpmem(actual, sizeof(head), head, sizeof(head));
+    qtest_memread(qts, linked, actual, sizeof(tail));
+    g_assert_cmpmem(actual, sizeof(tail), tail, sizeof(tail));
+    qtest_memread(qts, table & UINT32_MAX, actual, sizeof(head));
+    g_assert_cmpmem(actual, sizeof(head), empty, sizeof(head));
+    qtest_memread(qts, linked & UINT32_MAX, actual, sizeof(tail));
+    g_assert_cmpmem(actual, sizeof(tail), empty, sizeof(tail));
+    qtest_quit(qts);
+
+    fd = open(path, O_RDONLY);
+    g_assert_cmpint(fd, >=, 0);
+    for (unsigned round = 0; round < SG_ROUNDS; round++) {
+        unsigned sector = 64 + round * (SG_BYTES / SD_SECTOR_SIZE);
+
+        for (unsigned i = 0; i < SG_BYTES; i++) {
+            written[i] = i * 29 + (i >> 8) * 31 + round * 13 + 5;
+        }
+        g_assert_cmpint(pread(fd, actual, sizeof(actual),
+                              sector * SD_SECTOR_SIZE), ==, sizeof(actual));
+        g_assert_cmpmem(actual, sizeof(actual), written, sizeof(written));
+    }
+    g_assert_cmpint(pread(fd, actual, sizeof(actual), 3 * SD_SECTOR_SIZE), ==,
+                    sizeof(actual));
+    g_assert_cmpmem(actual, sizeof(actual), source, sizeof(source));
+    close(fd);
+    unlink(path);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -429,5 +593,6 @@ int main(int argc, char **argv)
     qtest_add_data_func("/bcm2712/raspi5b/sd-card", "raspi5b", test_sd_card);
     qtest_add_data_func("/bcm2712/raspi500/sd-card", "raspi500", test_sd_card);
     qtest_add_func("/bcm2712/raspi500/sd-adma64", test_sd_adma64);
+    qtest_add_func("/bcm2712/raspi500p/sd-adma64-sg", test_sd_adma64_sg);
     return g_test_run();
 }

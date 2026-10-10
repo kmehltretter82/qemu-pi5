@@ -74,6 +74,12 @@ tests (the latter download checksum-pinned kernel and initramfs assets)::
 The board tests exercise UART10 and SDIO1 interrupt routing, SD register
 access/reset, binary sector reads/writes and persistent backend contents,
 and independent RAM locations below and above 4 GiB. Separate GIC tests
+exercise per-core virtualization state. The Pi 500+ ADMA2-64 test performs
+24 multiblock transfers through linked descriptor tables above 8 GiB.
+It checks scattered buffers across page and 8 GiB boundaries, guard bytes,
+poisoned 32-bit address mirrors, transfer-complete IRQs and persistent
+card contents. These are functional DMA checks; no CPU data cache is modeled.
+Separate GIC tests
 check per-core virtualization state, virtual interrupts, maintenance PPI25,
 priority precision and immediate output deassertion during reset. The
 functional tests boot all three boards with four CPUs, check timer frequency,
