@@ -357,6 +357,14 @@ config MAX78000_SOC
     select MAX78000_TRNG
     select MAX78000_AES
 
+config RASPI5
+    bool
+    default y
+    depends on TCG && AARCH64
+    select ARM_GIC
+    select PL011
+    select DEVICE_TREE
+
 config RASPI
     bool
     default y
