@@ -152,6 +152,41 @@ static void test_maintenance_irq(gconstpointer machine)
     qtest_quit(qts);
 }
 
+static void test_reset_outputs(gconstpointer machine)
+{
+    QTestState *qts = gic_init(machine);
+
+    for (unsigned round = 0; round < 2; round++) {
+        for (unsigned cpu = 0; cpu < NCPUS; cpu++) {
+            uint64_t alias = gich_alias(cpu);
+
+            /* One pending LR delivers VIRQ and underflow maintenance. */
+            qtest_writel(qts, alias + 8, (31U << 27) | 1);
+            qtest_writel(qts, alias + 0x100, (1U << 28) | (64 + cpu));
+            qtest_writel(qts, alias, 3);
+        }
+        for (unsigned cpu = 0; cpu < NCPUS; cpu++) {
+            g_assert_true(qtest_get_irq(qts, 2 * NCPUS + cpu));
+            g_assert_true(qtest_get_irq(qts, 4 * NCPUS + cpu));
+        }
+
+        qtest_system_reset(qts);
+
+        /* Check the outputs before any GIC write could refresh them. */
+        for (unsigned line = 0; line < 5 * NCPUS; line++) {
+            g_assert_false(qtest_get_irq(qts, line));
+        }
+        for (unsigned cpu = 0; cpu < NCPUS; cpu++) {
+            uint64_t alias = gich_alias(cpu);
+
+            g_assert_cmphex(qtest_readl(qts, alias), ==, 0);
+            g_assert_cmphex(qtest_readl(qts, alias + 0x10), ==, 0);
+            g_assert_cmphex(qtest_readl(qts, alias + 0x100), ==, 0);
+        }
+    }
+    qtest_quit(qts);
+}
+
 int main(int argc, char **argv)
 {
     g_test_init(&argc, &argv, NULL);
@@ -167,5 +202,9 @@ int main(int argc, char **argv)
                         test_maintenance_irq);
     qtest_add_data_func("/bcm2712/raspi500/gic/maintenance-irq", "raspi500",
                         test_maintenance_irq);
+    qtest_add_data_func("/bcm2712/raspi5b/gic/reset-outputs", "raspi5b",
+                        test_reset_outputs);
+    qtest_add_data_func("/bcm2712/raspi500/gic/reset-outputs", "raspi500",
+                        test_reset_outputs);
     return g_test_run();
 }

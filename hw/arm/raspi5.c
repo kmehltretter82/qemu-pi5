@@ -72,6 +72,7 @@ static void *raspi5_get_dtb(const struct arm_boot_info *info, int *size)
     {
         const char *l3 = "/cpus/l3-cache";
         uint32_t l3_phandle = qemu_fdt_alloc_phandle(fdt);
+        uint32_t cpu_phandles[BCM2712_NCPUS];
 
         /* Match Linux's bcm2712.dtsi: private L2s and a shared external L3. */
         qemu_fdt_add_subnode(fdt, l3);
@@ -88,10 +89,13 @@ static void *raspi5_get_dtb(const struct arm_boot_info *info, int *size)
             g_autofree char *l2 = g_strdup_printf("%s/l2-cache", node);
             uint32_t l2_phandle = qemu_fdt_alloc_phandle(fdt);
 
+            cpu_phandles[i] = qemu_fdt_alloc_phandle(fdt);
+
             qemu_fdt_add_subnode(fdt, node);
             qemu_fdt_setprop_string(fdt, node, "device_type", "cpu");
             qemu_fdt_setprop_string(fdt, node, "compatible", "arm,cortex-a76");
             qemu_fdt_setprop_cell(fdt, node, "reg", i << 8);
+            qemu_fdt_setprop_cell(fdt, node, "phandle", cpu_phandles[i]);
             qemu_fdt_setprop_string(fdt, node, "enable-method", "psci");
             qemu_fdt_setprop_cell(fdt, node, "d-cache-size", 0x10000);
             qemu_fdt_setprop_cell(fdt, node, "d-cache-line-size", 64);
@@ -110,6 +114,23 @@ static void *raspi5_get_dtb(const struct arm_boot_info *info, int *size)
             qemu_fdt_setprop_cell(fdt, l2, "cache-level", 2);
             qemu_fdt_setprop(fdt, l2, "cache-unified", NULL, 0);
             qemu_fdt_setprop_cell(fdt, l2, "next-level-cache", l3_phandle);
+        }
+
+        if (arm_feature(&s->soc.cpu[0].env, ARM_FEATURE_PMU)) {
+            const char *pmu = "/arm-pmu";
+
+            /* The order must match the CPU affinity of SPI16 through SPI19. */
+            qemu_fdt_add_subnode(fdt, pmu);
+            qemu_fdt_setprop_string(fdt, pmu, "compatible",
+                                    "arm,cortex-a76-pmu");
+            qemu_fdt_setprop_cells(fdt, pmu, "interrupts",
+                                   0, BCM2712_PMU_SPI_BASE, 4,
+                                   0, BCM2712_PMU_SPI_BASE + 1, 4,
+                                   0, BCM2712_PMU_SPI_BASE + 2, 4,
+                                   0, BCM2712_PMU_SPI_BASE + 3, 4);
+            qemu_fdt_setprop_cells(fdt, pmu, "interrupt-affinity",
+                                   cpu_phandles[0], cpu_phandles[1],
+                                   cpu_phandles[2], cpu_phandles[3]);
         }
     }
 

@@ -85,6 +85,10 @@ static void bcm2712_realize(DeviceState *dev, Error **errp)
         qdev_connect_gpio_out(cpu, GTIMER_VIRT, bcm2712_ppi(s, i, 27));
         qdev_connect_gpio_out(cpu, GTIMER_HYP, bcm2712_ppi(s, i, 26));
         qdev_connect_gpio_out(cpu, GTIMER_SEC, bcm2712_ppi(s, i, 29));
+        /* BCM2712 has a separate PMU SPI for each core, not a shared PPI. */
+        qdev_connect_gpio_out_named(cpu, "pmu-interrupt", 0,
+                                    qdev_get_gpio_in(gic,
+                                        BCM2712_PMU_SPI_BASE + i));
     }
 
     qdev_prop_set_chr(uart, "chardev", serial_hd(0));

@@ -2162,12 +2162,29 @@ static void arm_gic_realize(DeviceState *dev, Error **errp)
 
 }
 
+static void arm_gic_reset_hold(Object *obj, ResetType type)
+{
+    GICState *s = ARM_GIC(obj);
+    ARMGICClass *agc = ARM_GIC_GET_CLASS(s);
+
+    agc->parent_phases.hold(obj, type);
+
+    /* Reset register state must also deassert the externally visible IRQs. */
+    gic_update(s);
+    if (s->virt_extn) {
+        gic_update_virt(s);
+    }
+}
+
 static void arm_gic_class_init(ObjectClass *klass, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     ARMGICClass *agc = ARM_GIC_CLASS(klass);
+    ResettableClass *rc = RESETTABLE_CLASS(klass);
 
     device_class_set_parent_realize(dc, arm_gic_realize, &agc->parent_realize);
+    resettable_class_set_parent_phases(rc, NULL, arm_gic_reset_hold, NULL,
+                                       &agc->parent_phases);
 }
 
 static const TypeInfo arm_gic_info = {

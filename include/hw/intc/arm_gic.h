@@ -68,6 +68,7 @@
 #define HW_ARM_GIC_H
 
 #include "arm_gic_common.h"
+#include "hw/core/resettable.h"
 #include "qom/object.h"
 
 /* Number of SGI target-list bits */
@@ -87,6 +88,7 @@ struct ARMGICClass {
     /*< public >*/
 
     DeviceRealize parent_realize;
+    ResettablePhases parent_phases;
 };
 
 const char *gic_class_name(void);

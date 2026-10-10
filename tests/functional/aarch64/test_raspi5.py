@@ -33,6 +33,8 @@ class Aarch64Raspi5Machine(LinuxKernelTest):
         self.vm.launch()
         self.wait_for_console_pattern('running at 54.00MHz')
         self.wait_for_console_pattern('smp: Brought up 1 node, 4 CPUs')
+        self.wait_for_console_pattern(
+            'enabled with armv8_cortex_a76 PMU driver, 7 counters available')
         self.wait_for_console_pattern('Run /bin/sh as init process')
         self.wait_for_console_pattern('~ #')
 
@@ -41,6 +43,11 @@ class Aarch64Raspi5Machine(LinuxKernelTest):
             'cat /sys/devices/system/cpu/online', '0-3')
         exec_command_and_wait_for_pattern(
             self, 'cat /sys/firmware/devicetree/base/model; echo', model)
+        exec_command_and_wait_for_pattern(
+            self, 'test "$(cat /sys/bus/event_source/devices/'
+            'armv8_cortex_a76/cpus)" = 0-3 && '
+            "printf 'PMU_%s\\n' OK || printf 'PMU_%s\\n' FAIL",
+            'PMU_OK', 'PMU_FAIL')
         # Linux must discover each private L2 and the shared external L3,
         # which is not reported in the Cortex-A76's architectural CLIDR.
         cache_properties = ('level', 'type', 'size', 'coherency_line_size',

@@ -17,6 +17,8 @@ Implemented
 * Device-tree cache topology: private 64 KiB instruction/data L1s, private
   512 KiB L2s, and a shared 2 MiB L3. Cache timing is not modeled.
 * CPU architectural timers at 54 MHz.
+* Per-core PMU interrupts on GIC SPI 16 through 19, with device-tree CPU
+  affinity. The PMU node is omitted with ``-cpu cortex-a76,pmu=off``.
 * PL011 debug UART10 at 0x107d001000, connected to GIC SPI 121.
 * SDIO1 microSD host at 0x1000fff000, configuration block at 0x1000fff400,
   and GIC SPI 273. The SDHCI v3 subset uses a 200 MHz base clock and limits
@@ -63,16 +65,19 @@ Validation
 From the build directory, run the board wiring tests and the Linux boot
 tests (the latter download checksum-pinned kernel and initramfs assets)::
 
-  meson test --print-errorlogs qtest-aarch64/bcm2712-test qtest-aarch64/bcm2712-gic-test
+  meson test --print-errorlogs \
+    qtest-aarch64/bcm2712-test qtest-aarch64/bcm2712-gic-test \
+    qtest-aarch64/bcm2712-pmu-test
   meson test --setup thorough --print-errorlogs func-aarch64-raspi5
 
 The board tests exercise UART10 and SDIO1 interrupt routing, SD register
 access/reset, binary sector reads/writes and persistent backend contents,
 and independent RAM locations below and above 4 GiB. Separate GIC tests
 check per-core virtualization state, virtual interrupts, maintenance PPI25,
-priority precision and reset. The functional tests boot both boards with
-four CPUs, check timer frequency and cache topology, execute serial-console
-commands and power off through PSCI. SD tests bind Linux's ``sdhci-brcmstb``
+priority precision and immediate output deassertion during reset. The
+functional tests boot both boards with four CPUs, check timer frequency,
+cache topology and PMU discovery, execute serial-console commands and
+power off through PSCI. SD tests bind Linux's ``sdhci-brcmstb``
 driver, verify sector hashes and writes, then read the persisted bytes in
 a fresh VM using the same card backend.
 
@@ -80,6 +85,13 @@ GIC and timer-free register tests keep the guest CPUs paused while driving
 MMIO and IRQs through qtest. Card and DMA tests keep the virtual clock running
 and verify deferred card power-up. Linux functional tests exercise running
 CPUs.
+
+PMU tests use TCG to execute an embedded AArch64 guest. They trigger actual
+counter overflows and check banked GIC pending/acknowledgement state and
+per-core IRQ output levels, including reset with an asserted interrupt.
+The guest polls with exceptions masked; interrupt-handler execution is
+outside this test. No cross compiler or additional guest assets are needed
+at test runtime.
 
 The SD tests use a checksum-pinned Raspberry Pi 4 KiB-page kernel with
 built-in MMC drivers. The small kernel used by the core tests lacks these
@@ -100,10 +112,15 @@ The GIC is configured with 320 interrupt IDs; its capacity and identification
 registers still need comparison against hardware. The UART reuses QEMU's
 generic PL011, including its 16-byte FIFO and identification registers,
 rather than the Pi's exact PL011 revision. UART and APB clocks share a fixed
-9.216 MHz source in the generated DT. CPU PMU interrupts are not wired and
-no PMU node is advertised. EL3 firmware is not modeled; Linux starts at EL2.
+9.216 MHz source in the generated DT. EL3 firmware is not modeled; Linux
+starts at EL2.
 Migration compatibility is not promised while this experimental machine
 is under development.
+
+The PMU uses QEMU's functional counter model. Under TCG, cycle counts
+follow virtual time at a fixed 1 GHz rate; retired-instruction counting
+requires precise ``-icount``. Cache events and physical Pi performance
+timing are not modeled.
 
 The SD model supports static media. Configuration-driven card detection
 changes Present State but does not synthesize insertion/removal interrupts.
@@ -127,6 +144,7 @@ Linux's ``arch/arm64/boot/dts/broadcom/bcm2712.dtsi``. The 54 MHz counter
 frequency was also checked against boot logs captured from a physical Pi 500.
 
 * https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/broadcom/bcm2712.dtsi
+* https://github.com/raspberrypi/linux/blob/4103a989a46196239b830bd07693277e42b8f992/arch/arm64/boot/dts/broadcom/bcm2712-ds.dtsi
 * https://www.raspberrypi.com/documentation/computers/processors.html#bcm2712
 * https://github.com/torvalds/linux/blob/master/drivers/mmc/host/sdhci-brcmstb.c
 * https://documentation-service.arm.com/static/5e8f15e27100066a414f7424
