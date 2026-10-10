@@ -6,6 +6,8 @@ This is a research and implementation note for the experimental downstream
 claimed by this document. Sources and local hardware observations were
 reviewed on 2026-10-10; pin the Linux source revision used by each future
 boot test.
+The native host and MIP source audit uses Linux revision
+``3857c2fe5449541e24afc5efdb0f81a8a8f9a3a0``.
 
 Recommended next checkpoint
 ---------------------------
@@ -57,6 +59,11 @@ PCI 0xfffffff000 to MIP0 at CPU 0x1000130000, and PCI zero to the
 CPU's 4 MiB RP1 aperture at 0x1f00000000. CPU and PCI addresses must
 remain distinct throughout the implementation.
 
+PCIe1 uses CPU outbound bases 0x1b00000000 and 0x1800000000 for the
+same PCI target ranges. Its inbound view maps PCI 0x1000000000 to RAM
+at zero and PCI 0xfffffff000 to MIP1 at CPU 0x1000131000. It has no
+RP1 aperture in its DMA ranges.
+
 The local Pi 500+ capture
 ``runs/capture-sdhci-tryboot-20261008T185744Z/pci.stdout`` shows a
 ``14e4:2712`` root port, revision 0x30, and an RP1 ``1de4:0001``
@@ -100,9 +107,17 @@ CPU base/limit at 0x4070, and high address fields at 0x4080/0x4084.
 BCM2712 uses the BCM7712-style layout: up to ten inbound windows,
 inbound address/size registers starting at 0x402c and 0x40d4, and
 CPU remap registers at 0x40ac and 0x410c. Size encoding is non-linear.
+Size code zero disables an inbound window; codes 1 through 21 encode
+``2^(code + 15)`` bytes, and codes 28 through 31 encode 4 through 32 KiB.
+CPU remap bit zero enables translation. Outbound base/limit fields use
+MiB units with inclusive limits.
 MDIO is at 0x1100/0x1104/0x1108; reset is at 0x9210, PERSTB at
 0x4064, status at 0x4068, and hard-debug at 0x4304. Status bit 7
 selects root-complex mode; bits 4 and 5 report link readiness.
+Mainline's BCM2712 post-setup path programs the 54 MHz reference clock
+through MDIO and polls completion. Raspberry Pi vendor driver revisions
+also touch additional UBUS/QoS controls; select and pin the first test
+kernel before defining the initial register subset.
 
 Use QEMU's PCI host, bridge and PCIe capability infrastructure for
 enumeration, BAR sizing, bus numbering and ordinary configuration state.
@@ -114,6 +129,9 @@ Drive MemoryRegion aliases or an equivalent translated DMA address space
 from the programmed window registers. Keep decoding disabled when a
 window is disabled, preserve transaction failures outside valid mappings,
 and route endpoint DMA and MSI writes through the same inbound view.
+QEMU's ``msi_send_message()`` already uses the endpoint's bus-master
+address space; retain that path so disabling the MIP inbound window also
+prevents MSI delivery. A separate MSI shortcut would bypass translation.
 Reset, PERST, MDIO completion and link state need observable transitions;
 a constant link-up value is insufficient for reset tests. The initial
 model may omit analog timing while implementing those transitions.
@@ -128,7 +146,13 @@ device tree allocates 64 vectors at SPI 128 through 191. The driver
 initializes host edge configuration at offsets 0x20/0x30, host masks
 at 0x40/0x50, and VPU masks at 0x60/0x70. Raise, clear and status
 registers require explicit modeling and verification. MIP1 is a separate
-instance for PCIe1 with different vector allocation parameters.
+instance for PCIe1 with eight allocatable vectors. Its DT specifies
+``msi-ranges`` base SPI 247 and ``brcm,msi-offset = <8>``. The driver
+adds that offset before composing message data and selecting the parent
+SPI, so messages 8 through 15 route to SPI 255 through 262 (GIC IDs
+287 through 294). These MIP interrupts are separate from the controller's
+SPI 224 MSI output. Test the offset explicitly rather than treating the
+DT range base as the first delivered SPI.
 
 The `RP1 PCI driver`_ requires an OF node, a usable BAR1, and exactly
 61 MSI-X vectors before it creates the RP1 interrupt domain and populates
@@ -193,6 +217,12 @@ Validation sequence
 2. Test inbound RAM translation below and above 4 GiB, MIP vector routing,
    masking and repeated delivery. Exercise a real QEMU NVMe endpoint on
    PCIe1 under Linux, then verify data read/write and MSI-X delivery.
+   Use ``nvme,msix_qsize=8`` for MIP1's eight-vector subset. Check table/PBA
+   placement from PCI capabilities, pending replay after endpoint masking,
+   and advancing MIP interrupt counters during non-polling Linux I/O.
+   Disable or relocate inbound windows and verify that DMA/MSI no longer
+   reaches the original targets; use poisoned low-address mirrors for
+   queues and buffers above 4 GiB.
 3. Attach the verified RP1 endpoint on PCIe2. Check BAR sizing/relocation,
    all 61 MSI-X allocations, table/PBA masks and pending replay, atomic
    set/clear operations, and level-source acknowledge/retrigger behavior.
@@ -203,9 +233,9 @@ Validation sequence
 Primary sources
 ---------------
 
-.. _BCM2712 device tree: https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/broadcom/bcm2712.dtsi
-.. _Linux PCIe driver: https://github.com/torvalds/linux/blob/master/drivers/pci/controller/pcie-brcmstb.c
-.. _MIP driver: https://github.com/torvalds/linux/blob/master/drivers/irqchip/irq-bcm2712-mip.c
+.. _BCM2712 device tree: https://github.com/torvalds/linux/blob/3857c2fe5449541e24afc5efdb0f81a8a8f9a3a0/arch/arm64/boot/dts/broadcom/bcm2712.dtsi
+.. _Linux PCIe driver: https://github.com/torvalds/linux/blob/3857c2fe5449541e24afc5efdb0f81a8a8f9a3a0/drivers/pci/controller/pcie-brcmstb.c
+.. _MIP driver: https://github.com/torvalds/linux/blob/3857c2fe5449541e24afc5efdb0f81a8a8f9a3a0/drivers/irqchip/irq-bcm2712-mip.c
 .. _RP1 PCI driver: https://github.com/torvalds/linux/blob/master/drivers/misc/rp1/rp1_pci.c
 .. _RP1 datasheet: https://datasheets.raspberrypi.com/rp1/rp1-peripherals.pdf
 .. _RP1 peripheral device tree: https://github.com/torvalds/linux/blob/master/arch/arm64/boot/dts/broadcom/rp1-common.dtsi
