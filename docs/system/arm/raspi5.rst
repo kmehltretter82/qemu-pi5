@@ -3,8 +3,8 @@ Raspberry Pi 5, Pi 500 and Pi 500+ (experimental)
 
 This downstream fork provides ``raspi5b`` (alias ``raspi5``) and
 ``raspi500`` and ``raspi500p`` machines. They implement an initial BCM2712
-core platform for direct Linux kernel boot. They do not yet boot a Raspberry Pi OS SD image
-or the Raspberry Pi EEPROM/VideoCore firmware.
+core platform for direct Linux kernel boot. They do not yet boot a
+Raspberry Pi OS SD image or the Raspberry Pi EEPROM/VideoCore firmware.
 
 Implemented
 -----------
@@ -73,14 +73,14 @@ tests (the latter download checksum-pinned kernel and initramfs assets)::
 
 The board tests exercise UART10 and SDIO1 interrupt routing, SD register
 access/reset, binary sector reads/writes and persistent backend contents,
-and independent RAM locations below and above 4 GiB. Separate GIC tests
-exercise per-core virtualization state. The Pi 500+ ADMA2-64 test performs
+and independent RAM locations below and above 4 GiB. The Pi 500+ ADMA2-64
+test performs
 24 multiblock transfers through linked descriptor tables above 8 GiB.
 It checks scattered buffers across page and 8 GiB boundaries, guard bytes,
 poisoned 32-bit address mirrors, transfer-complete IRQs and persistent
 card contents. These are functional DMA checks; no CPU data cache is modeled.
-Separate GIC tests
-check per-core virtualization state, virtual interrupts, maintenance PPI25,
+Separate GIC tests check per-core virtualization state, virtual interrupts,
+maintenance PPI25,
 priority precision and immediate output deassertion during reset. The
 functional tests boot all three boards with four CPUs, check timer frequency,
 cache topology and PMU discovery, execute serial-console commands and
@@ -142,6 +142,8 @@ migration and VM snapshot restoration are not supported by this milestone.
 
 The next PCIe/RP1 milestones and unresolved hardware details are recorded
 in :doc:`raspi5-rp1-plan`.
+For native SD DMA tests and an external vb2 bundle smoke runner, see
+:doc:`raspi5-dma-testing`.
 
 References
 ----------

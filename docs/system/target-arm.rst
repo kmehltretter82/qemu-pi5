@@ -98,6 +98,7 @@ Board-specific documentation
    arm/orangepi
    arm/raspi
    arm/raspi5
+   arm/raspi5-dma-testing
    arm/raspi5-rp1-plan
    arm/collie
    arm/sx1
