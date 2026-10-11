@@ -19,6 +19,8 @@ Implemented
 * CPU architectural timers at 54 MHz.
 * Per-core PMU interrupts on GIC SPI 16 through 19, with device-tree CPU
   affinity. The PMU node is omitted with ``-cpu cortex-a76,pmu=off``.
+* Both BCM2712 MIP MSI-X receivers, including vector offsets, host/VPU
+  configuration and masking, status, software raise/clear and GIC routing.
 * PL011 debug UART10 at 0x107d001000, connected to GIC SPI 121.
 * SDIO1 microSD host at 0x1000fff000, configuration block at 0x1000fff400,
   and GIC SPI 273. The SDHCI v3 subset uses a 200 MHz base clock and limits
@@ -71,7 +73,8 @@ tests (the latter download checksum-pinned kernel and initramfs assets)::
     qtest-aarch64/bcm2712-pmu-test
   meson test --setup thorough --print-errorlogs func-aarch64-raspi5
 
-The board tests exercise UART10 and SDIO1 interrupt routing, SD register
+The board tests exercise UART10, both MIP blocks and SDIO1 interrupt routing,
+MIP boundary vectors, masking, status and reset, SD register
 access/reset, binary sector reads/writes and persistent backend contents,
 and independent RAM locations below and above 4 GiB. The Pi 500+ ADMA2-64
 test performs
@@ -108,9 +111,9 @@ Limitations
 -----------
 
 This is a functional bring-up model, not a complete or timing-accurate Pi.
-RP1, PCIe, SDIO2/Wi-Fi, USB, Ethernet, GPIO, GPU/display, mailbox firmware
-services, board identification registers and the power/reset controllers
-are not implemented. The generated device tree omits these devices.
+RP1, the PCIe hosts, SDIO2/Wi-Fi, USB, Ethernet, GPIO, GPU/display,
+mailbox firmware services, board identification registers and the power/reset
+controllers are not implemented. The generated device tree omits these devices.
 Unmodified hardware DTBs are not supported by this milestone; ``-dtb``
 is available for experiments with descriptions matching the modeled subset.
 

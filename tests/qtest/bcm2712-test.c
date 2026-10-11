@@ -37,6 +37,19 @@
 #define SD_FORCE_CD  (1U << 31)
 #define SD_FORCE_ABSENT (1U << 30)
 
+#define MIP0 UINT64_C(0x1000130000)
+#define MIP1 UINT64_C(0x1000131000)
+#define MIP_RAISE       0x00
+#define MIP_CLEAR       0x10
+#define MIP_CFGL_HOST   0x20
+#define MIP_CFGH_HOST   0x30
+#define MIP_MASKL_HOST  0x40
+#define MIP_MASKH_HOST  0x50
+#define MIP_MASKL_VPU   0x60
+#define MIP_MASKH_VPU   0x70
+#define MIP_STATUSL     0x80
+#define MIP_STATUSH     0x90
+
 static void enable_gic_irq(QTestState *qts, unsigned irq)
 {
     qtest_writel(qts, GICD, 1);
@@ -44,6 +57,84 @@ static void enable_gic_irq(QTestState *qts, unsigned irq)
     qtest_writel(qts, GICC + 4, 0xff);
     qtest_writeb(qts, GICD + 0x800 + irq, 1);
     qtest_writel(qts, GICD + 0x100 + (irq / 32) * 4, 1U << (irq % 32));
+}
+
+static void enable_gic_edge_irq(QTestState *qts, unsigned irq)
+{
+    uint64_t config = GICD + 0xc00 + (irq / 16) * 4;
+    uint32_t value = qtest_readl(qts, config);
+
+    value |= 2U << ((irq % 16) * 2);
+    qtest_writel(qts, config, value);
+    enable_gic_irq(qts, irq);
+}
+
+static void configure_mip(QTestState *qts, uint64_t base)
+{
+    qtest_writel(qts, base + MIP_MASKL_HOST, 0);
+    qtest_writel(qts, base + MIP_MASKH_HOST, 0);
+    qtest_writel(qts, base + MIP_MASKL_VPU, UINT32_MAX);
+    qtest_writel(qts, base + MIP_MASKH_VPU, UINT32_MAX);
+    qtest_writel(qts, base + MIP_CFGL_HOST, UINT32_MAX);
+    qtest_writel(qts, base + MIP_CFGH_HOST, UINT32_MAX);
+}
+
+static void mip_expect_irq(QTestState *qts, uint64_t base, unsigned vector,
+                           unsigned spi)
+{
+    uint64_t status = base + (vector < 32 ? MIP_STATUSL : MIP_STATUSH);
+    uint32_t bit = 1U << (vector % 32);
+
+    g_assert_cmphex(qtest_readl(qts, GICC + 0xc), ==, 1023);
+    qtest_writel(qts, base + MIP_RAISE, vector);
+    g_assert_cmphex(qtest_readl(qts, status) & bit, ==, bit);
+    g_assert_cmphex(qtest_readl(qts, GICC + 0xc), ==, spi);
+    qtest_writel(qts, base + MIP_CLEAR, vector);
+    g_assert_cmphex(qtest_readl(qts, status) & bit, ==, 0);
+    qtest_writel(qts, GICC + 0x10, spi);
+}
+
+static void test_mip(gconstpointer machine)
+{
+    const unsigned mip0_vectors[] = { 0, 31, 32, 63 };
+    const unsigned mip1_vectors[] = { 8, 15 };
+    QTestState *qts = qtest_initf("-machine %s -S -serial null",
+                                  (const char *)machine);
+
+    configure_mip(qts, MIP0);
+    configure_mip(qts, MIP1);
+    for (unsigned i = 0; i < G_N_ELEMENTS(mip0_vectors); i++) {
+        enable_gic_edge_irq(qts, 32 + 128 + mip0_vectors[i]);
+    }
+    for (unsigned i = 0; i < G_N_ELEMENTS(mip1_vectors); i++) {
+        enable_gic_edge_irq(qts, 32 + 247 + mip1_vectors[i]);
+    }
+
+    for (unsigned i = 0; i < G_N_ELEMENTS(mip0_vectors); i++) {
+        mip_expect_irq(qts, MIP0, mip0_vectors[i],
+                       32 + 128 + mip0_vectors[i]);
+    }
+    for (unsigned i = 0; i < G_N_ELEMENTS(mip1_vectors); i++) {
+        mip_expect_irq(qts, MIP1, mip1_vectors[i],
+                       32 + 247 + mip1_vectors[i]);
+    }
+
+    /* A host mask suppresses delivery while retaining status. */
+    qtest_writel(qts, MIP1 + MIP_MASKL_HOST, 1U << 8);
+    qtest_writel(qts, MIP1 + MIP_RAISE, 8);
+    g_assert_cmphex(qtest_readl(qts, MIP1 + MIP_STATUSL), ==, 1U << 8);
+    g_assert_cmphex(qtest_readl(qts, GICC + 0xc), ==, 1023);
+    qtest_writel(qts, MIP1 + MIP_CLEAR, 8);
+    qtest_writel(qts, MIP1 + MIP_MASKL_HOST, 0);
+    g_assert_cmphex(qtest_readl(qts, GICC + 0xc), ==, 1023);
+
+    qtest_system_reset(qts);
+    g_assert_cmphex(qtest_readl(qts, MIP0 + MIP_STATUSL), ==, 0);
+    g_assert_cmphex(qtest_readl(qts, MIP0 + MIP_STATUSH), ==, 0);
+    g_assert_cmphex(qtest_readl(qts, MIP1 + MIP_STATUSL), ==, 0);
+    g_assert_cmphex(qtest_readl(qts, MIP1 + MIP_MASKL_HOST), ==,
+                    UINT32_MAX);
+    qtest_quit(qts);
 }
 
 static void test_uart_irq(gconstpointer machine)
@@ -580,6 +671,9 @@ int main(int argc, char **argv)
     qtest_add_data_func("/bcm2712/raspi5b/uart-irq", "raspi5b", test_uart_irq);
     qtest_add_data_func("/bcm2712/raspi500/uart-irq", "raspi500",
                         test_uart_irq);
+    qtest_add_data_func("/bcm2712/raspi5b/mip", "raspi5b", test_mip);
+    qtest_add_data_func("/bcm2712/raspi500/mip", "raspi500", test_mip);
+    qtest_add_data_func("/bcm2712/raspi500p/mip", "raspi500p", test_mip);
     qtest_add_data_func("/bcm2712/raspi500/ram", "raspi500", test_ram);
     qtest_add_data_func("/bcm2712/raspi500p/ram", "raspi500p", test_ram);
     qtest_add_data_func("/bcm2712/raspi500p/uart-irq", "raspi500p",

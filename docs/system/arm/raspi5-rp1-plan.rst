@@ -12,8 +12,9 @@ The native host and MIP source audit uses Linux revision
 Recommended next checkpoint
 ---------------------------
 
-Implement the native BCM2712 PCIe host and MIP interrupt receiver, then
-validate them with an existing QEMU PCIe endpoint. The first acceptance
+The two MIP interrupt receivers are now modeled and wired to their GIC
+ranges. Implement the native BCM2712 PCIe host next, then validate it with
+an existing QEMU PCIe endpoint. The first acceptance
 test should enumerate an NVMe controller, perform DMA through programmed
 inbound windows, and deliver MSI-X interrupts. The external PCIe1 port
 provides a useful test before attaching an RP1 endpoint to PCIe2.

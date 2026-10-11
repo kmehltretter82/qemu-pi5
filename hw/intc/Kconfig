@@ -27,6 +27,10 @@ config ARM_GIC
     select ARM_GIC_KVM if KVM
     select MSI_NONBROKEN
 
+config BCM2712_MIP
+    bool
+    select MSI_NONBROKEN
+
 config ARM_GICV3
     bool
     depends on ARM_GIC

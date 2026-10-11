@@ -40,6 +40,8 @@ static void *raspi5_get_dtb(const struct arm_boot_info *info, int *size)
     uint32_t gic_phandle = qemu_fdt_alloc_phandle(fdt);
     uint32_t uartclk_phandle = qemu_fdt_alloc_phandle(fdt);
     uint32_t sdclk_phandle = qemu_fdt_alloc_phandle(fdt);
+    uint32_t mip0_phandle = qemu_fdt_alloc_phandle(fdt);
+    uint32_t mip1_phandle = qemu_fdt_alloc_phandle(fdt);
     const char uart_compat[] = "arm,pl011\0arm,primecell";
     const char clock_names[] = "uartclk\0apb_pclk";
     const char psci_compat[] = "arm,psci-1.0\0arm,psci-0.2";
@@ -48,6 +50,8 @@ static void *raspi5_get_dtb(const struct arm_boot_info *info, int *size)
     const char *gic = "/interrupt-controller@107fff9000";
     const char *uart = "/serial@107d001000";
     const char *sd = "/mmc@1000fff000";
+    const char *mip0 = "/msi-controller@1000130000";
+    const char *mip1 = "/msi-controller@1000131000";
     /* This is deliberately a minimal DT, describing only modeled devices. */
     qemu_fdt_setprop(fdt, "/", "compatible", rmc->compatible,
                      rmc->compatible_size);
@@ -151,6 +155,30 @@ static void *raspi5_get_dtb(const struct arm_boot_info *info, int *size)
                                 2, BCM2712_GIC_HYP, 2, 0x2000,
                                 2, BCM2712_GIC_VCPU, 2, 0x2000);
     qemu_fdt_setprop_cells(fdt, gic, "interrupts", 1, 9, 0xf04);
+
+    qemu_fdt_add_subnode(fdt, mip0);
+    qemu_fdt_setprop_string(fdt, mip0, "compatible", "brcm,bcm2712-mip");
+    qemu_fdt_setprop_cell(fdt, mip0, "phandle", mip0_phandle);
+    qemu_fdt_setprop(fdt, mip0, "msi-controller", NULL, 0);
+    qemu_fdt_setprop_cell(fdt, mip0, "#msi-cells", 0);
+    qemu_fdt_setprop_sized_cells(fdt, mip0, "reg",
+                                2, BCM2712_MIP0, 2, 0xc0,
+                                2, BCM2712_MIP_MSG, 2, 0x1000);
+    qemu_fdt_setprop_cells(fdt, mip0, "msi-ranges",
+                           gic_phandle, 0, BCM2712_MIP0_SPI_BASE, 1, 64);
+    qemu_fdt_setprop_cell(fdt, mip0, "brcm,msi-offset", 0);
+
+    qemu_fdt_add_subnode(fdt, mip1);
+    qemu_fdt_setprop_string(fdt, mip1, "compatible", "brcm,bcm2712-mip");
+    qemu_fdt_setprop_cell(fdt, mip1, "phandle", mip1_phandle);
+    qemu_fdt_setprop(fdt, mip1, "msi-controller", NULL, 0);
+    qemu_fdt_setprop_cell(fdt, mip1, "#msi-cells", 0);
+    qemu_fdt_setprop_sized_cells(fdt, mip1, "reg",
+                                2, BCM2712_MIP1, 2, 0xc0,
+                                2, BCM2712_MIP_MSG, 2, 0x1000);
+    qemu_fdt_setprop_cells(fdt, mip1, "msi-ranges",
+                           gic_phandle, 0, 247, 1, 8);
+    qemu_fdt_setprop_cell(fdt, mip1, "brcm,msi-offset", 8);
 
     qemu_fdt_add_subnode(fdt, "/timer");
     qemu_fdt_setprop_string(fdt, "/timer", "compatible", "arm,armv8-timer");

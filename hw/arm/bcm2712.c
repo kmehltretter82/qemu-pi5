@@ -31,6 +31,8 @@ static void bcm2712_init(Object *obj)
     object_initialize_child(obj, "gic", &s->gic, TYPE_ARM_GIC);
     object_initialize_child(obj, "uart10", &s->uart10, TYPE_PL011);
     object_initialize_child(obj, "sdio1", &s->sdio1, TYPE_BCM2712_SDHCI);
+    object_initialize_child(obj, "mip0", &s->mip0, TYPE_BCM2712_MIP);
+    object_initialize_child(obj, "mip1", &s->mip1, TYPE_BCM2712_MIP);
 }
 
 static void bcm2712_realize(DeviceState *dev, Error **errp)
@@ -107,6 +109,28 @@ static void bcm2712_realize(DeviceState *dev, Error **errp)
     sysbus_mmio_map(SYS_BUS_DEVICE(&s->sdio1), 1, BCM2712_SDIO1_CFG);
     sysbus_connect_irq(SYS_BUS_DEVICE(&s->sdio1), 0,
                        qdev_get_gpio_in(gic, BCM2712_SDIO1_SPI));
+
+    qdev_prop_set_uint32(DEVICE(&s->mip0), "num-irqs", 64);
+    qdev_prop_set_uint32(DEVICE(&s->mip0), "offset", 0);
+    if (!sysbus_realize(SYS_BUS_DEVICE(&s->mip0), errp)) {
+        return;
+    }
+    sysbus_mmio_map(SYS_BUS_DEVICE(&s->mip0), 0, BCM2712_MIP0);
+    for (unsigned i = 0; i < 64; i++) {
+        sysbus_connect_irq(SYS_BUS_DEVICE(&s->mip0), i,
+                           qdev_get_gpio_in(gic, BCM2712_MIP0_SPI_BASE + i));
+    }
+
+    qdev_prop_set_uint32(DEVICE(&s->mip1), "num-irqs", 8);
+    qdev_prop_set_uint32(DEVICE(&s->mip1), "offset", 8);
+    if (!sysbus_realize(SYS_BUS_DEVICE(&s->mip1), errp)) {
+        return;
+    }
+    sysbus_mmio_map(SYS_BUS_DEVICE(&s->mip1), 0, BCM2712_MIP1);
+    for (unsigned i = 0; i < 8; i++) {
+        sysbus_connect_irq(SYS_BUS_DEVICE(&s->mip1), i,
+                           qdev_get_gpio_in(gic, BCM2712_MIP1_SPI_BASE + i));
+    }
 }
 
 static void bcm2712_class_init(ObjectClass *oc, const void *data)

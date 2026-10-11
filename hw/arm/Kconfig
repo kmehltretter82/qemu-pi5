@@ -362,6 +362,7 @@ config RASPI5
     default y
     depends on TCG && AARCH64
     select ARM_GIC
+    select BCM2712_MIP
     select PL011
     select DEVICE_TREE
     select BCM2712_SDHCI
