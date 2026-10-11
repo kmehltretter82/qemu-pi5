@@ -33,6 +33,8 @@ static void bcm2712_init(Object *obj)
     object_initialize_child(obj, "sdio1", &s->sdio1, TYPE_BCM2712_SDHCI);
     object_initialize_child(obj, "mip0", &s->mip0, TYPE_BCM2712_MIP);
     object_initialize_child(obj, "mip1", &s->mip1, TYPE_BCM2712_MIP);
+    object_initialize_child(obj, "pcie1", &s->pcie1,
+                            TYPE_BCM2712_PCIE_HOST);
 }
 
 static void bcm2712_realize(DeviceState *dev, Error **errp)
@@ -131,6 +133,20 @@ static void bcm2712_realize(DeviceState *dev, Error **errp)
         sysbus_connect_irq(SYS_BUS_DEVICE(&s->mip1), i,
                            qdev_get_gpio_in(gic, BCM2712_MIP1_SPI_BASE + i));
     }
+
+    bcm2712_pcie_set_msi_region(&s->pcie1, &s->mip1.message,
+                                BCM2712_MIP1);
+    if (!sysbus_realize(SYS_BUS_DEVICE(&s->pcie1), errp)) {
+        return;
+    }
+    sysbus_mmio_map(SYS_BUS_DEVICE(&s->pcie1), 0, BCM2712_PCIE1);
+    for (unsigned i = 0; i < 4; i++) {
+        sysbus_connect_irq(SYS_BUS_DEVICE(&s->pcie1), i,
+                           qdev_get_gpio_in(gic,
+                               BCM2712_PCIE1_INTX_BASE + i));
+    }
+    sysbus_connect_irq(SYS_BUS_DEVICE(&s->pcie1), 4,
+                       qdev_get_gpio_in(gic, BCM2712_PCIE1_CTRL_SPI));
 }
 
 static void bcm2712_class_init(ObjectClass *oc, const void *data)

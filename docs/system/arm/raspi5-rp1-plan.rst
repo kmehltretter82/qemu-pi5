@@ -2,22 +2,21 @@ BCM2712 PCIe and RP1 implementation plan
 ========================================
 
 This is a research and implementation note for the experimental downstream
-``raspi5b`` and ``raspi500`` machines. No PCIe or RP1 implementation is
-claimed by this document. Sources and local hardware observations were
-reviewed on 2026-10-10; pin the Linux source revision used by each future
-boot test.
+``raspi5b``, ``raspi500`` and ``raspi500p`` machines.  PCIe1 and both MIP
+receivers are implemented; PCIe2 and RP1 remain planned.  Sources and local
+hardware observations were reviewed on 2026-10-10; pin the Linux source
+revision used by each future boot test.
 The native host and MIP source audit uses Linux revision
 ``3857c2fe5449541e24afc5efdb0f81a8a8f9a3a0``.
 
 Recommended next checkpoint
 ---------------------------
 
-The two MIP interrupt receivers are now modeled and wired to their GIC
-ranges. Implement the native BCM2712 PCIe host next, then validate it with
-an existing QEMU PCIe endpoint. The first acceptance
-test should enumerate an NVMe controller, perform DMA through programmed
-inbound windows, and deliver MSI-X interrupts. The external PCIe1 port
-provides a useful test before attaching an RP1 endpoint to PCIe2.
+The PCIe1 checkpoint is complete.  Linux enumerates QEMU's NVMe endpoint,
+performs direct I/O through the programmed 64 GiB inbound RAM window, and
+delivers MSI-X writes through the MIP1 window.  Traces have also confirmed
+DMA into guest physical RAM above 4 GiB.  The next implementation checkpoint
+is PCIe2 followed by a verified RP1 endpoint.
 
 RP1 follows when its PCI configuration and interrupt controls can be
 implemented from verified evidence. Its first useful checkpoint is Linux

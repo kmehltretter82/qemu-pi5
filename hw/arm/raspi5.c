@@ -47,11 +47,13 @@ static void *raspi5_get_dtb(const struct arm_boot_info *info, int *size)
     const char psci_compat[] = "arm,psci-1.0\0arm,psci-0.2";
     const char sd_compat[] = "brcm,bcm2712-sdhci\0brcm,sdhci-brcmstb";
     const char sd_reg_names[] = "host\0cfg";
+    const char pcie_irq_names[] = "pcie\0msi";
     const char *gic = "/interrupt-controller@107fff9000";
     const char *uart = "/serial@107d001000";
     const char *sd = "/mmc@1000fff000";
     const char *mip0 = "/msi-controller@1000130000";
     const char *mip1 = "/msi-controller@1000131000";
+    const char *pcie1 = "/pcie@1000110000";
     /* This is deliberately a minimal DT, describing only modeled devices. */
     qemu_fdt_setprop(fdt, "/", "compatible", rmc->compatible,
                      rmc->compatible_size);
@@ -180,6 +182,45 @@ static void *raspi5_get_dtb(const struct arm_boot_info *info, int *size)
                            gic_phandle, 0, 247, 1, 8);
     qemu_fdt_setprop_cell(fdt, mip1, "brcm,msi-offset", 8);
 
+    qemu_fdt_add_subnode(fdt, pcie1);
+    qemu_fdt_setprop_string(fdt, pcie1, "compatible", "brcm,bcm2712-pcie");
+    qemu_fdt_setprop_string(fdt, pcie1, "device_type", "pci");
+    qemu_fdt_setprop_cell(fdt, pcie1, "linux,pci-domain", 1);
+    qemu_fdt_setprop_cell(fdt, pcie1, "max-link-speed", 2);
+    qemu_fdt_setprop_cell(fdt, pcie1, "num-lanes", 1);
+    qemu_fdt_setprop_cell(fdt, pcie1, "#address-cells", 3);
+    qemu_fdt_setprop_cell(fdt, pcie1, "#interrupt-cells", 1);
+    qemu_fdt_setprop_cell(fdt, pcie1, "#size-cells", 2);
+    qemu_fdt_setprop_sized_cells(fdt, pcie1, "reg",
+                                2, BCM2712_PCIE1, 2, 0x9310);
+    qemu_fdt_setprop_cells(fdt, pcie1, "interrupts",
+                           0, BCM2712_PCIE1_CTRL_SPI, 4,
+                           0, BCM2712_PCIE1_CTRL_SPI + 1, 4);
+    qemu_fdt_setprop(fdt, pcie1, "interrupt-names", pcie_irq_names,
+                     sizeof(pcie_irq_names));
+    qemu_fdt_setprop_cells(fdt, pcie1, "interrupt-map-mask",
+                           0, 0, 0, 7);
+    qemu_fdt_setprop_cells(fdt, pcie1, "interrupt-map",
+                           0, 0, 0, 1,
+                           gic_phandle, 0, BCM2712_PCIE1_INTX_BASE, 4,
+                           0, 0, 0, 2,
+                           gic_phandle, 0, BCM2712_PCIE1_INTX_BASE + 1, 4,
+                           0, 0, 0, 3,
+                           gic_phandle, 0, BCM2712_PCIE1_INTX_BASE + 2, 4,
+                           0, 0, 0, 4,
+                           gic_phandle, 0, BCM2712_PCIE1_INTX_BASE + 3, 4);
+    qemu_fdt_setprop_cells(fdt, pcie1, "ranges",
+                           0x02000000, 0, 0,
+                           0x1b, 0, 0, 0xfffffffc,
+                           0x43000000, 4, 0,
+                           0x18, 0, 3, 0);
+    qemu_fdt_setprop_cells(fdt, pcie1, "dma-ranges",
+                           0x03000000, 0x10, 0,
+                           0, 0, 0x10, 0,
+                           0x03000000, 0xff, 0xfffff000,
+                           0x10, 0x00131000, 0, 0x1000);
+    qemu_fdt_setprop_cell(fdt, pcie1, "msi-parent", mip1_phandle);
+
     qemu_fdt_add_subnode(fdt, "/timer");
     qemu_fdt_setprop_string(fdt, "/timer", "compatible", "arm,armv8-timer");
     qemu_fdt_setprop_cells(fdt, "/timer", "interrupts",
@@ -283,6 +324,7 @@ static void raspi5_base_class_init(ObjectClass *oc, const void *data)
     mc->valid_cpu_types = valid_cpu_types;
     mc->min_cpus = mc->max_cpus = mc->default_cpus = BCM2712_NCPUS;
     mc->default_ram_id = "bcm2712.ram";
+    mc->pci_allow_0_address = true;
     mc->no_parallel = true;
     mc->no_floppy = true;
     mc->no_cdrom = true;

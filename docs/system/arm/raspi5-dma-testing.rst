@@ -114,8 +114,10 @@ replacement, writeback or a separate DMA visibility domain. A zero result
 with both module trees is expected and is not evidence against the
 physical Pi 400 comparison or an explanation of the Pi 500+ failure.
 
-RP1, USB/webcam, vc4 and NVMe/HMB are absent. Native PCIe/RP1 work is
-planned in :doc:`raspi5-rp1-plan`; an unrelated PCI endpoint or forced
+RP1, USB/webcam, vc4 and physical NVMe HMB behavior are absent.  PCIe1 can
+now host QEMU's NVMe endpoint and exercises programmed inbound/outbound DMA
+translations plus MIP1 MSI-X delivery.  PCIe2/RP1 work remains in
+:doc:`raspi5-rp1-plan`; an unrelated PCI endpoint or forced
 synthetic cache fault would not reproduce the physical board's behavior.
 
 Next physical Pi 500+ diagnostic

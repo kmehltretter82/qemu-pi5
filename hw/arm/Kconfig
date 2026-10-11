@@ -363,6 +363,7 @@ config RASPI5
     depends on TCG && AARCH64
     select ARM_GIC
     select BCM2712_MIP
+    select BCM2712_PCIE
     select PL011
     select DEVICE_TREE
     select BCM2712_SDHCI

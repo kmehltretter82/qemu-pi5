@@ -21,6 +21,9 @@ Implemented
   affinity. The PMU node is omitted with ``-cpu cortex-a76,pmu=off``.
 * Both BCM2712 MIP MSI-X receivers, including vector offsets, host/VPU
   configuration and masking, status, software raise/clear and GIC routing.
+* The external PCIe1 host, including root/downstream configuration, INTx,
+  programmable outbound and inbound translations, and MSI-X delivery through
+  MIP1.  QEMU PCIe endpoints can be attached to the ``pcie1`` bus.
 * PL011 debug UART10 at 0x107d001000, connected to GIC SPI 121.
 * SDIO1 microSD host at 0x1000fff000, configuration block at 0x1000fff400,
   and GIC SPI 273. The SDHCI v3 subset uses a 200 MHz base clock and limits
@@ -62,6 +65,15 @@ firmware loading from the card remains unimplemented. QEMU's generic SD-card
 device requires a writable backend and rejects ``readonly=on``. Use
 ``snapshot=on`` for disposable writes that leave the original image intact.
 
+To attach QEMU's NVMe endpoint to PCIe1, add for example::
+
+  -drive if=none,id=nvme0,file=nvme.raw,format=raw \
+  -device nvme,serial=pi500,drive=nvme0,bus=pcie1,msix_qsize=8
+
+Linux's ``brcm-pcie`` driver programs the BCM2712 translation windows.  The
+endpoint's DMA and MSI-X writes then pass through the modeled inbound address
+space; accesses outside enabled windows do not fall through to system RAM.
+
 Validation
 ----------
 
@@ -76,8 +88,9 @@ tests (the latter download checksum-pinned kernel and initramfs assets)::
 The board tests exercise UART10, both MIP blocks and SDIO1 interrupt routing,
 MIP boundary vectors, masking, status and reset, SD register
 access/reset, binary sector reads/writes and persistent backend contents,
-and independent RAM locations below and above 4 GiB. The Pi 500+ ADMA2-64
-test performs
+independent RAM locations below and above 4 GiB, and PCIe1 root/downstream
+configuration, link/reset state, BAR mapping and an attached NVMe endpoint.
+The Pi 500+ ADMA2-64 test performs
 24 multiblock transfers through linked descriptor tables above 8 GiB.
 It checks scattered buffers across page and 8 GiB boundaries, guard bytes,
 poisoned 32-bit address mirrors, transfer-complete IRQs and persistent
@@ -111,7 +124,7 @@ Limitations
 -----------
 
 This is a functional bring-up model, not a complete or timing-accurate Pi.
-RP1, the PCIe hosts, SDIO2/Wi-Fi, USB, Ethernet, GPIO, GPU/display,
+PCIe2/RP1, SDIO2/Wi-Fi, USB, Ethernet, GPIO, GPU/display,
 mailbox firmware services, board identification registers and the power/reset
 controllers are not implemented. The generated device tree omits these devices.
 Unmodified hardware DTBs are not supported by this milestone; ``-dtb``
@@ -142,6 +155,11 @@ not an exact hardware register capture. Physical write-protect switches and
 read-only SD backends are outside this milestone.
 The reused SDHCI migration state does not preserve Host Control 2, so SD
 migration and VM snapshot restoration are not supported by this milestone.
+
+PCIe1 implements the register and translation subset used by Linux direct
+boot and QEMU endpoints.  PHY/MDIO timing, advanced error reporting, hotplug,
+power management and the controller's internal MSI output are not modeled.
+PCIe2 and an RP1 endpoint remain future work.
 
 The next PCIe/RP1 milestones and unresolved hardware details are recorded
 in :doc:`raspi5-rp1-plan`.

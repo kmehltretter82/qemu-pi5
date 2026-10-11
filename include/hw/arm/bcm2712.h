@@ -8,6 +8,7 @@
 #include "hw/core/sysbus.h"
 #include "hw/intc/arm_gic.h"
 #include "hw/intc/bcm2712_mip.h"
+#include "hw/pci-host/bcm2712_pcie.h"
 #include "hw/char/pl011.h"
 #include "hw/sd/bcm2712_sdhci.h"
 #include "target/arm/cpu.h"
@@ -35,6 +36,9 @@ OBJECT_DECLARE_SIMPLE_TYPE(BCM2712State, BCM2712)
 #define BCM2712_MIP_MSG         UINT64_C(0xfffffff000)
 #define BCM2712_MIP0_SPI_BASE   128
 #define BCM2712_MIP1_SPI_BASE   255
+#define BCM2712_PCIE1           UINT64_C(0x1000110000)
+#define BCM2712_PCIE1_INTX_BASE 219
+#define BCM2712_PCIE1_CTRL_SPI  223
 
 struct BCM2712State {
     SysBusDevice parent_obj;
@@ -44,6 +48,7 @@ struct BCM2712State {
     BCM2712SDHCIState sdio1;
     BCM2712MIPState mip0;
     BCM2712MIPState mip1;
+    BCM2712PCIeHost pcie1;
 };
 
 #endif

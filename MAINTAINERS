@@ -1019,9 +1019,13 @@ L: qemu-arm@nongnu.org
 S: Odd Fixes
 F: hw/arm/raspi*.c
 F: hw/*/bcm283*
+F: hw/*/bcm2712*
 F: include/hw/arm/rasp*
 F: include/hw/*/bcm283*
+F: include/hw/*/bcm2712*
 F: docs/system/arm/raspi.rst
+F: docs/system/arm/raspi5*
+F: tests/qtest/bcm2712*
 F: tests/functional/arm/test_raspi2.py
 F: tests/functional/aarch64/test_raspi*.py
 

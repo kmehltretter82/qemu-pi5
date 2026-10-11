@@ -50,6 +50,17 @@
 #define MIP_STATUSL     0x80
 #define MIP_STATUSH     0x90
 
+#define PCIE1 UINT64_C(0x1000110000)
+#define PCIE_STATUS       0x4068
+#define PCIE_CTRL         0x4064
+#define PCIE_OUT_TARGET   0x400c
+#define PCIE_OUT_RANGE    0x4070
+#define PCIE_OUT_BASE_HI  0x4080
+#define PCIE_OUT_LIMIT_HI 0x4084
+#define PCIE_EXT_DATA     0x8000
+#define PCIE_EXT_INDEX    0x9000
+#define PCIE_CPU_WINDOW   UINT64_C(0x1b00000000)
+
 static void enable_gic_irq(QTestState *qts, unsigned irq)
 {
     qtest_writel(qts, GICD, 1);
@@ -135,6 +146,66 @@ static void test_mip(gconstpointer machine)
     g_assert_cmphex(qtest_readl(qts, MIP1 + MIP_MASKL_HOST), ==,
                     UINT32_MAX);
     qtest_quit(qts);
+}
+
+static void test_pcie_nvme_config(void)
+{
+    g_autofree char *path = NULL;
+    g_autoptr(GError) error = NULL;
+    const uint64_t nvme_bar = 0;
+    QTestState *qts;
+    uint64_t cap;
+    int fd = g_file_open_tmp("bcm2712-nvme-XXXXXX", &path, &error);
+
+    g_assert_no_error(error);
+    g_assert_cmpint(fd, >=, 0);
+    g_assert_cmpint(ftruncate(fd, 64 * 1024 * 1024), ==, 0);
+    close(fd);
+
+    qts = qtest_initf("-machine raspi500p -S -serial null "
+                      "-drive if=none,id=nvme0,file=%s,format=raw "
+                      "-device nvme,serial=pi500,drive=nvme0,bus=pcie1",
+                      path);
+
+    /* Root config space is exposed directly at the controller base. */
+    g_assert_cmphex(qtest_readl(qts, PCIE1), ==, 0x271214e4);
+    g_assert_cmphex(qtest_readl(qts, PCIE1 + PCIE_STATUS), ==, 0x80);
+    g_assert_cmphex(qtest_readl(qts, PCIE1 + 0xb8) & 0x03ff, ==, 0x12);
+    g_assert_cmphex(qtest_readw(qts, PCIE1 + 0xbe) & 0x23ff, ==, 0x11);
+
+    /* Configure bus 1, release PERST#, then enumerate the endpoint. */
+    qtest_writel(qts, PCIE1 + 0x18, 0x00010100);
+    qtest_writel(qts, PCIE1 + PCIE_CTRL, 4);
+    g_assert_cmphex(qtest_readl(qts, PCIE1 + PCIE_STATUS), ==, 0xb0);
+    /* The generic NVMe endpoint negotiates Gen1 x1 with the Gen2 root. */
+    g_assert_cmphex(qtest_readw(qts, PCIE1 + 0xbe) & 0x23ff, ==, 0x2011);
+    qtest_writel(qts, PCIE1 + PCIE_EXT_INDEX, 1 << 20);
+    g_assert_cmphex(qtest_readw(qts, PCIE1 + PCIE_EXT_DATA), ==, 0x1b36);
+    g_assert_cmphex(qtest_readl(qts, PCIE1 + PCIE_EXT_DATA + 8) >> 8, ==,
+                    0x010802);
+
+    /* Linux assigns the first BAR at PCI address zero on this host. */
+    qtest_writew(qts, PCIE1 + 4, 6);
+    qtest_writel(qts, PCIE1 + 0x20, 0);
+    qtest_writew(qts, PCIE1 + PCIE_EXT_DATA + 4, 6);
+    qtest_writel(qts, PCIE1 + PCIE_EXT_DATA + 0x10, nvme_bar | 4);
+    qtest_writel(qts, PCIE1 + PCIE_EXT_DATA + 0x14, 0);
+    qtest_writel(qts, PCIE1 + PCIE_OUT_TARGET, 0);
+    qtest_writel(qts, PCIE1 + PCIE_OUT_TARGET + 4, 0);
+    qtest_writel(qts, PCIE1 + PCIE_OUT_RANGE, 0xfff00000);
+    qtest_writel(qts, PCIE1 + PCIE_OUT_BASE_HI, 0x1b);
+    qtest_writel(qts, PCIE1 + PCIE_OUT_LIMIT_HI, 0x1b);
+
+    cap = qtest_readq(qts, PCIE_CPU_WINDOW + nvme_bar);
+    g_assert_cmphex(cap, !=, 0);
+    g_assert_cmphex(cap, !=, UINT64_MAX);
+    g_assert_cmphex(qtest_readl(qts, PCIE_CPU_WINDOW + nvme_bar + 8), !=, 0);
+
+    qtest_system_reset(qts);
+    g_assert_cmphex(qtest_readl(qts, PCIE1 + PCIE_STATUS), ==, 0x80);
+    g_assert_cmphex(qtest_readl(qts, PCIE1 + PCIE_OUT_RANGE), ==, 0);
+    qtest_quit(qts);
+    unlink(path);
 }
 
 static void test_uart_irq(gconstpointer machine)
@@ -688,5 +759,7 @@ int main(int argc, char **argv)
     qtest_add_data_func("/bcm2712/raspi500/sd-card", "raspi500", test_sd_card);
     qtest_add_func("/bcm2712/raspi500/sd-adma64", test_sd_adma64);
     qtest_add_func("/bcm2712/raspi500p/sd-adma64-sg", test_sd_adma64_sg);
+    qtest_add_func("/bcm2712/raspi500p/pcie-nvme-config",
+                   test_pcie_nvme_config);
     return g_test_run();
 }
