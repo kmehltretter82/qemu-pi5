@@ -11,6 +11,7 @@
 #include "hw/arm/boot.h"
 #include "hw/arm/machines-qom.h"
 #include "hw/core/qdev-properties.h"
+#include "net/net.h"
 #include "system/address-spaces.h"
 #include "system/blockdev.h"
 #include "system/device_tree.h"
@@ -22,6 +23,7 @@ struct Raspi5MachineState {
     MachineState parent_obj;
     BCM2712State soc;
     struct arm_boot_info bootinfo;
+    bool sdio_wifi;
 };
 
 struct Raspi5MachineClass {
@@ -51,6 +53,7 @@ static void *raspi5_get_dtb(const struct arm_boot_info *info, int *size)
     const char *gic = "/interrupt-controller@107fff9000";
     const char *uart = "/serial@107d001000";
     const char *sd = "/mmc@1000fff000";
+    const char *wifi_sd = "/mmc@1001100000";
     const char *mip0 = "/msi-controller@1000130000";
     const char *mip1 = "/msi-controller@1000131000";
     const char *pcie1 = "/pcie@1000110000";
@@ -264,7 +267,47 @@ static void *raspi5_get_dtb(const struct arm_boot_info *info, int *size)
     /* The modeled slot is wired directly, without a pin multiplexer. */
     qemu_fdt_setprop_string(fdt, sd, "pinctrl-names", "default");
     qemu_fdt_setprop(fdt, sd, "pinctrl-0", NULL, 0);
+
+    if (s->sdio_wifi) {
+        const char *wifi = "/mmc@1001100000/wifi@1";
+
+        qemu_fdt_setprop_string(fdt, "/aliases", "mmc1", wifi_sd);
+        qemu_fdt_add_subnode(fdt, wifi_sd);
+        qemu_fdt_setprop(fdt, wifi_sd, "compatible", sd_compat,
+                         sizeof(sd_compat));
+        qemu_fdt_setprop_sized_cells(fdt, wifi_sd, "reg",
+                                    2, BCM2712_SDIO2, 2, 0x260,
+                                    2, BCM2712_SDIO2_CFG, 2, 0x200);
+        qemu_fdt_setprop(fdt, wifi_sd, "reg-names", sd_reg_names,
+                         sizeof(sd_reg_names));
+        qemu_fdt_setprop_cells(fdt, wifi_sd, "interrupts",
+                               0, BCM2712_SDIO2_SPI, 4);
+        qemu_fdt_setprop_cell(fdt, wifi_sd, "clocks", sdclk_phandle);
+        qemu_fdt_setprop_string(fdt, wifi_sd, "clock-names", "sw_sdio");
+        qemu_fdt_setprop_cell(fdt, wifi_sd, "bus-width", 4);
+        qemu_fdt_setprop_cell(fdt, wifi_sd, "max-frequency", 50000000);
+        qemu_fdt_setprop(fdt, wifi_sd, "sd-highspeed", NULL, 0);
+        qemu_fdt_setprop(fdt, wifi_sd, "non-removable", NULL, 0);
+        qemu_fdt_setprop(fdt, wifi_sd, "cap-sdio-irq", NULL, 0);
+        qemu_fdt_setprop_string(fdt, wifi_sd, "pinctrl-names", "default");
+        qemu_fdt_setprop(fdt, wifi_sd, "pinctrl-0", NULL, 0);
+        qemu_fdt_setprop_cell(fdt, wifi_sd, "#address-cells", 1);
+        qemu_fdt_setprop_cell(fdt, wifi_sd, "#size-cells", 0);
+        qemu_fdt_add_subnode(fdt, wifi);
+        qemu_fdt_setprop_string(fdt, wifi, "compatible", "brcm,bcm4329-fmac");
+        qemu_fdt_setprop_cell(fdt, wifi, "reg", 1);
+    }
     return fdt;
+}
+
+static bool raspi5_get_sdio_wifi(Object *obj, Error **errp)
+{
+    return RASPI5_BASE_MACHINE(obj)->sdio_wifi;
+}
+
+static void raspi5_set_sdio_wifi(Object *obj, bool value, Error **errp)
+{
+    RASPI5_BASE_MACHINE(obj)->sdio_wifi = value;
 }
 
 static void raspi5_init(MachineState *machine)
@@ -292,7 +335,17 @@ static void raspi5_init(MachineState *machine)
 
     memory_region_add_subregion(get_system_memory(), 0, machine->ram);
     object_initialize_child(OBJECT(machine), "soc", &s->soc, TYPE_BCM2712);
+    qdev_prop_set_bit(DEVICE(&s->soc), "sdio-wifi", s->sdio_wifi);
     sysbus_realize(SYS_BUS_DEVICE(&s->soc), &error_fatal);
+
+    if (s->sdio_wifi) {
+        DeviceState *wifi = qdev_new(TYPE_CYW43455_SDIO);
+
+        qdev_prop_set_uint32(wifi, "hardware-profile",
+                             CYW43455_SDIO_PROFILE_PI5);
+        qemu_configure_nic_device(wifi, false, NULL);
+        qdev_realize_and_unref(wifi, s->soc.sdio2.bus, &error_fatal);
+    }
 
     /* Leave an empty slot unless a legacy SD backend is supplied. */
     di = drive_get(IF_SD, 0, 0);
@@ -329,6 +382,13 @@ static void raspi5_base_class_init(ObjectClass *oc, const void *data)
     mc->no_floppy = true;
     mc->no_cdrom = true;
     mc->block_default_type = IF_SD;
+
+    object_class_property_add_bool(oc, "sdio-wifi",
+                                   raspi5_get_sdio_wifi,
+                                   raspi5_set_sdio_wifi);
+    object_class_property_set_description(
+        oc, "sdio-wifi",
+        "attach the experimental CYW43455-compatible endpoint to SDIO2");
 }
 
 static void raspi5b_class_init(ObjectClass *oc, const void *data)

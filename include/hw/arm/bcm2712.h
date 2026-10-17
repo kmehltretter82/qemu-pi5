@@ -31,6 +31,9 @@ OBJECT_DECLARE_SIMPLE_TYPE(BCM2712State, BCM2712)
 #define BCM2712_SDIO1           UINT64_C(0x1000fff000)
 #define BCM2712_SDIO1_CFG       UINT64_C(0x1000fff400)
 #define BCM2712_SDIO1_SPI       273
+#define BCM2712_SDIO2           UINT64_C(0x1001100000)
+#define BCM2712_SDIO2_CFG       UINT64_C(0x1001100400)
+#define BCM2712_SDIO2_SPI       274
 #define BCM2712_MIP0            UINT64_C(0x1000130000)
 #define BCM2712_MIP1            UINT64_C(0x1000131000)
 #define BCM2712_MIP_MSG         UINT64_C(0xfffffff000)
@@ -46,6 +49,8 @@ struct BCM2712State {
     GICState gic;
     PL011State uart10;
     BCM2712SDHCIState sdio1;
+    BCM2712SDHCIState sdio2;
+    bool sdio_wifi;
     BCM2712MIPState mip0;
     BCM2712MIPState mip1;
     BCM2712PCIeHost pcie1;

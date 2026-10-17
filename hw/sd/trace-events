@@ -37,6 +37,54 @@ sdhci_write_dataport(uint16_t data_count) "write buffer filled with %u bytes of 
 sdhci_capareg(const char *desc, uint16_t val) "%s: %u"
 
 # sd.c
+cyw43455_sdio_frame(uint32_t length, uint8_t sequence, uint8_t channel, uint8_t data_offset) "synthetic SDPCM tx length=%" PRIu32 " sequence=%u channel=%u data-offset=%u"
+cyw43455_sdio_data(uint32_t length, uint16_t ethertype, uint8_t ip_protocol, uint16_t source_port, uint16_t destination_port) "synthetic data tx length=%" PRIu32 " ethertype=0x%04x ip-protocol=%u source-port=%u destination-port=%u"
+cyw43455_sdio_glom(uint32_t length, unsigned int frames, uint8_t last_sequence) "synthetic tx glom length=%" PRIu32 " frames=%u last-sequence=%u"
+cyw43455_sdio_credit_scheduled(uint8_t tx_sequence, uint8_t tx_max, uint32_t delay_ms) "synthetic credit scheduled tx-sequence=%u tx-max=%u delay-ms=%" PRIu32
+cyw43455_sdio_credit_emitted(uint8_t tx_sequence, uint8_t tx_max) "synthetic credit emitted tx-sequence=%u tx-max=%u"
+cyw43455_sdio_rx_data(uint32_t length, uint32_t frame_length, uint8_t sequence, uint8_t tx_max) "synthetic data rx length=%" PRIu32 " frame-length=%" PRIu32 " sequence=%u tx-max=%u"
+cyw43455_sdio_rx_glom(uint8_t frames, uint32_t length, bool descriptor) "synthetic rx glom frames=%u length=%" PRIu32 " descriptor=%u"
+cyw43455_sdio_link_event(bool up, uint8_t sequence, uint8_t tx_max) "synthetic link event up=%d sequence=%u tx-max=%u"
+cyw43455_sdio_link_rearmed(void) "synthetic association event rearmed"
+cyw43455_sdio_rx_read(uint32_t length, uint32_t frame_length, uint32_t position, uint32_t first_word) "synthetic rx read length=%" PRIu32 " frame-length=%" PRIu32 " position=%" PRIu32 " first-word=0x%08" PRIx32
+cyw43455_sdio_rx_ack(uint32_t frame_length, uint32_t position) "synthetic rx ack frame-length=%" PRIu32 " position=%" PRIu32
+cyw43455_sdio_rx_promoted(uint32_t length) "synthetic pending rx promoted length=%" PRIu32
+cyw43455_sdio_rx_dropped(uint32_t length) "synthetic inbound frame dropped length=%" PRIu32
+cyw43455_sdio_rx_filtered(uint32_t length, bool multicast) "synthetic inbound frame filtered length=%" PRIu32 " multicast=%u"
+cyw43455_sdio_filter(uint32_t multicast_count, bool allmulti, bool promiscuous) "synthetic receive filter multicast-count=%" PRIu32 " allmulti=%u promiscuous=%u"
+cyw43455_sdio_mac(uint8_t a0, uint8_t a1, uint8_t a2, uint8_t a3, uint8_t a4, uint8_t a5) "runtime MAC %02x:%02x:%02x:%02x:%02x:%02x"
+cyw43455_sdio_arp_reply(uint8_t a0, uint8_t a1, uint8_t a2, uint8_t a3) "synthetic ARP offload reply for %u.%u.%u.%u"
+cyw43455_sdio_nd_reply(uint8_t a12, uint8_t a13, uint8_t a14, uint8_t a15) "synthetic ND offload reply target suffix bytes %u:%u:%u:%u"
+cyw43455_sdio_station(uint32_t tx_packets, uint32_t rx_packets, uint64_t tx_bytes, uint64_t rx_bytes, int signal) "synthetic station info tx-packets=%" PRIu32 " rx-packets=%" PRIu32 " tx-bytes=%" PRIu64 " rx-bytes=%" PRIu64 " signal=%d"
+cyw43455_sdio_bss(uint16_t beacon, uint8_t dtim, int signal, int noise) "synthetic BSS info beacon=%u dtim=%u signal=%d noise=%d"
+cyw43455_sdio_escan_request(uint16_t sync_id, uint32_t version, uint32_t channels, uint32_t ssids, bool match) "synthetic escan request sync-id=0x%04x version=%" PRIu32 " channels=%" PRIu32 " ssids=%" PRIu32 " match=%u"
+cyw43455_sdio_escan_event(uint16_t sync_id, uint32_t status, bool partial, uint32_t length) "synthetic escan event sync-id=0x%04x status=%" PRIu32 " partial=%u length=%" PRIu32
+cyw43455_sdio_survey(uint32_t query, uint32_t chanspec, uint32_t duration, bool active) "synthetic survey query=%" PRIu32 " chanspec=0x%04" PRIx32 " duration-ms=%" PRIu32 " active=%u"
+cyw43455_sdio_bw_cap(bool set, uint32_t band, uint32_t capability, int32_t status) "synthetic bandwidth set=%u band=%" PRIu32 " capability=0x%" PRIx32 " status=%" PRId32
+cyw43455_sdio_chanspecs(uint32_t filter, uint32_t count, int32_t status) "synthetic chanspecs filter=0x%04" PRIx32 " count=%" PRIu32 " status=%" PRId32
+cyw43455_sdio_power_mode(bool set, uint32_t mode, int32_t status) "synthetic power mode set=%u mode=%" PRIu32 " status=%" PRId32
+cyw43455_sdio_obss_coex(int32_t mode, int32_t status) "synthetic OBSS coexistence mode=%" PRId32 " status=%" PRId32
+cyw43455_sdio_tx_power(bool set, uint32_t qdbm, bool override, int32_t status) "synthetic transmit power set=%u qdbm=%" PRIu32 " override=%u status=%" PRId32
+cyw43455_sdio_mfp(bool set, uint32_t mode, int32_t status) "synthetic MFP mode set=%u mode=%" PRIu32 " status=%" PRId32
+cyw43455_sdio_pno(bool set, bool enabled, uint32_t scan_freq, uint32_t channels, uint32_t networks, int32_t status) "synthetic PNO set=%u enabled=%u scan-frequency=%" PRIu32 " channels=%" PRIu32 " networks=%" PRIu32 " status=%" PRId32
+cyw43455_sdio_tdls(bool set, bool enabled, int32_t status) "synthetic TDLS set=%u enabled=%u status=%" PRId32
+cyw43455_sdio_roam_off(bool set, bool disabled, int32_t status) "synthetic firmware roaming set=%u disabled=%u status=%" PRId32
+cyw43455_sdio_bcn_timeout(bool set, uint32_t timeout, int32_t status) "synthetic beacon timeout set=%u timeout=%" PRIu32 " status=%" PRId32
+cyw43455_sdio_roam_parameter(bool set, bool trigger, int32_t value, uint32_t band, int32_t status) "synthetic roam parameter set=%u trigger=%u value=%" PRId32 " band=%" PRIu32 " status=%" PRId32
+cyw43455_sdio_control(uint32_t command, bool set, uint32_t request_id, uint32_t length) "synthetic control command=%" PRIu32 " set=%u id=%" PRIu32 " length=%" PRIu32
+cyw43455_sdio_iovar(const char *name, bool set, uint32_t request_id, int32_t status) "synthetic iovar name=%s set=%u id=%" PRIu32 " status=%" PRIi32
+cyw43455_sdio_control_queued(uint32_t length) "synthetic control response queued length=%" PRIu32
+cyw43455_sdio_ap_state(bool mode, bool started, bool peer, uint32_t chanspec, uint32_t ssid_len) "private open AP mode=%u started=%u peer=%u chanspec=0x%" PRIx32 " ssid-length=%" PRIu32
+cyw43455_sdio_ap_event(uint32_t type, uint16_t flags, uint32_t length, bool peer, uint8_t pending) "private AP event type=%" PRIu32 " flags=%u length=%" PRIu32 " peer=%u pending=%u"
+cyw43455_sdio_ap_drop(bool tx, uint32_t reason, uint32_t length) "private AP filtered tx=%u reason=%" PRIu32 " length=%" PRIu32
+cyw43455_sdio_control_dropped(uint32_t command, uint32_t request_id) "synthetic control response dropped command=%" PRIu32 " id=%" PRIu32
+cyw43455_sdio_fws_negotiate(uint32_t flags) "private FWS negotiated flags=0x%" PRIx32
+cyw43455_sdio_fws_map(uint8_t budget) "private FWS credit map emitted per-FIFO-budget=%u"
+cyw43455_sdio_fws_accept(uint32_t tag, uint8_t outstanding, uint8_t available) "private FWS accepted tag=0x%08" PRIx32 " outstanding=%u pool-available=%u"
+cyw43455_sdio_fws_drop(uint32_t tag, unsigned int reason) "private FWS rejected tag=0x%08" PRIx32 " reason=%u"
+cyw43455_sdio_fws_status(uint32_t tag, uint8_t outstanding) "private FWS terminal status tag=0x%08" PRIx32 " outstanding=%u"
+cyw43455_sdio_fws_creditback(void) "private FWS explicit FIFO credit return emitted"
+cyw43455_sdio_fws_interface(bool open) "private FWS primary interface open=%u"
 sdcard_normal_command(const char *proto, const char *cmd_desc, uint8_t cmd, uint32_t arg, const char *mode, const char *state) "%s %20s/ CMD%02d arg 0x%08x (mode %s, state %s)"
 sdcard_app_command(const char *proto, const char *acmd_desc, uint8_t acmd, uint32_t arg, const char *mode, const char *state) "%s %23s/ACMD%02d arg 0x%08x (mode %s, state %s)"
 sdcard_response(const char *rspdesc, int rsplen) "%s (sz:%d)"

@@ -1,5 +1,5 @@
 /*
- * Experimental BCM2712 platform: CPU cluster, GIC, debug UART and SDIO1.
+ * Experimental BCM2712 platform: CPU cluster, GIC, debug UART and SDIO hosts.
  * Register addresses and interrupts follow Linux's bcm2712.dtsi.
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -112,6 +112,19 @@ static void bcm2712_realize(DeviceState *dev, Error **errp)
     sysbus_connect_irq(SYS_BUS_DEVICE(&s->sdio1), 0,
                        qdev_get_gpio_in(gic, BCM2712_SDIO1_SPI));
 
+    /* The optional soldered Wi-Fi endpoint has its own host and interrupt. */
+    if (s->sdio_wifi) {
+        object_initialize_child(OBJECT(s), "sdio2", &s->sdio2,
+                                TYPE_BCM2712_SDHCI);
+        if (!sysbus_realize(SYS_BUS_DEVICE(&s->sdio2), errp)) {
+            return;
+        }
+        sysbus_mmio_map(SYS_BUS_DEVICE(&s->sdio2), 0, BCM2712_SDIO2);
+        sysbus_mmio_map(SYS_BUS_DEVICE(&s->sdio2), 1, BCM2712_SDIO2_CFG);
+        sysbus_connect_irq(SYS_BUS_DEVICE(&s->sdio2), 0,
+                           qdev_get_gpio_in(gic, BCM2712_SDIO2_SPI));
+    }
+
     qdev_prop_set_uint32(DEVICE(&s->mip0), "num-irqs", 64);
     qdev_prop_set_uint32(DEVICE(&s->mip0), "offset", 0);
     if (!sysbus_realize(SYS_BUS_DEVICE(&s->mip0), errp)) {
@@ -149,12 +162,17 @@ static void bcm2712_realize(DeviceState *dev, Error **errp)
                        qdev_get_gpio_in(gic, BCM2712_PCIE1_CTRL_SPI));
 }
 
+static const Property bcm2712_properties[] = {
+    DEFINE_PROP_BOOL("sdio-wifi", BCM2712State, sdio_wifi, false),
+};
+
 static void bcm2712_class_init(ObjectClass *oc, const void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(oc);
 
     dc->realize = bcm2712_realize;
     dc->user_creatable = false;
+    device_class_set_props(dc, bcm2712_properties);
 }
 
 static const TypeInfo bcm2712_type = {

@@ -227,6 +227,24 @@ static bool sdhci_update_irq(SDHCIState *s)
     return pending;
 }
 
+static void sdhci_sync_card_irq(SDHCIState *s)
+{
+    if (s->card_irq_level && (s->norintstsen & SDHC_NISEN_CARDINT)) {
+        s->norintsts |= SDHC_NIS_CARDINT;
+    } else {
+        s->norintsts &= ~SDHC_NIS_CARDINT;
+    }
+    sdhci_update_irq(s);
+}
+
+static void sdhci_set_card_irq(DeviceState *dev, bool level)
+{
+    SDHCIState *s = (SDHCIState *)dev;
+
+    s->card_irq_level = level;
+    sdhci_sync_card_irq(s);
+}
+
 static void sdhci_raise_insertion_irq(void *opaque)
 {
     SDHCIState *s = (SDHCIState *)opaque;
@@ -289,6 +307,7 @@ static void sdhci_set_readonly(DeviceState *dev, bool level)
 static void sdhci_reset(SDHCIState *s)
 {
     DeviceState *dev = DEVICE(s);
+    bool card_irq_level = s->card_irq_level;
 
     timer_del(s->insert_timer);
     timer_del(s->transfer_timer);
@@ -299,6 +318,7 @@ static void sdhci_reset(SDHCIState *s)
      * initialization
      */
     memset(&s->sdmasysad, 0, (uintptr_t)&s->capareg - (uintptr_t)&s->sdmasysad);
+    s->card_irq_level = card_irq_level;
 
     /* Reset other state based on current card insertion/readonly status */
     sdhci_set_inserted(dev, sdbus_get_inserted(&s->sdbus));
@@ -312,6 +332,7 @@ static void sdhci_reset(SDHCIState *s)
         s->norintstsen = 0x013f;
         s->errintstsen = 0x117f;
     }
+    sdhci_sync_card_irq(s);
 }
 
 static void sdhci_poweron_reset(DeviceState *dev)
@@ -1285,9 +1306,8 @@ sdhci_write(void *opaque, hwaddr offset, uint64_t val, unsigned size)
         }
         break;
     case SDHC_NORINTSTS:
-        if (s->norintstsen & SDHC_NISEN_CARDINT) {
-            value &= ~SDHC_NIS_CARDINT;
-        }
+        /* CARDINT reflects a level from the card and is not W1C. */
+        value &= ~SDHC_NIS_CARDINT;
         s->norintsts &= mask | ~value;
         s->errintsts &= (mask >> 16) | ~(value >> 16);
         if (s->errintsts) {
@@ -1295,7 +1315,7 @@ sdhci_write(void *opaque, hwaddr offset, uint64_t val, unsigned size)
         } else {
             s->norintsts &= ~SDHC_NIS_ERR;
         }
-        sdhci_update_irq(s);
+        sdhci_sync_card_irq(s);
         break;
     case SDHC_NORINTSTSEN:
         MASKED_WRITE(s->norintstsen, mask, value);
@@ -1316,7 +1336,7 @@ sdhci_write(void *opaque, hwaddr offset, uint64_t val, unsigned size)
             s->norintsts |= SDHC_NIS_INSERT;
             s->pending_insert_state = false;
         }
-        sdhci_update_irq(s);
+        sdhci_sync_card_irq(s);
         break;
     case SDHC_NORINTSIGEN:
         MASKED_WRITE(s->norintsigen, mask, value);
@@ -1477,7 +1497,7 @@ static const VMStateDescription sdhci_pending_insert_vmstate = {
 
 const VMStateDescription sdhci_vmstate = {
     .name = "sdhci",
-    .version_id = 1,
+    .version_id = 2,
     .minimum_version_id = 1,
     .fields = (const VMStateField[]) {
         VMSTATE_UINT32(sdmasysad, SDHCIState),
@@ -1505,6 +1525,7 @@ const VMStateDescription sdhci_vmstate = {
         VMSTATE_UINT16(data_count, SDHCIState),
         VMSTATE_UINT64(admasysaddr, SDHCIState),
         VMSTATE_UINT8(stopped_state, SDHCIState),
+        VMSTATE_BOOL_V(card_irq_level, SDHCIState, 2),
         VMSTATE_VBUFFER_UINT32(fifo_buffer, SDHCIState, 1, NULL, buf_maxsz),
         VMSTATE_TIMER_PTR(insert_timer, SDHCIState),
         VMSTATE_TIMER_PTR(transfer_timer, SDHCIState),
@@ -1605,6 +1626,7 @@ static void sdhci_bus_class_init(ObjectClass *klass, const void *data)
 
     sbc->set_inserted = sdhci_set_inserted;
     sbc->set_readonly = sdhci_set_readonly;
+    sbc->set_card_irq = sdhci_set_card_irq;
 }
 
 /* --- qdev i.MX eSDHC --- */
