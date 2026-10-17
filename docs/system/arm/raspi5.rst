@@ -6,6 +6,10 @@ This downstream fork provides ``raspi5b`` (alias ``raspi5``) and
 core platform for direct Linux kernel boot. They do not yet boot a
 Raspberry Pi OS SD image or the Raspberry Pi EEPROM/VideoCore firmware.
 
+The ``wifi-next-20261017`` branch also contains an opt-in Wi-Fi development
+checkpoint. It is not yet qualified; see :doc:`raspi-wifi-next-checkpoint`
+for its exact scope, failing test and paused build state.
+
 Implemented
 -----------
 

@@ -318,6 +318,8 @@ struct SDState {
 #define CYW43455_ARMCR4_BANKIDX          0x0040
 #define CYW43455_ARMCR4_BANKINFO         0x0044
 #define CYW43455_ARMCR4_BANK_COUNT       3
+#define CYW43455_ARMCR4_RAM_BASE         0x00198000
+#define CYW43455_ARMCR4_RAM_SIZE         (640 * KiB)
 
 #define CYW43455_SDIO_CORE_INDEX         4
 #define CYW43455_SDIO_INTSTATUS          0x0020
@@ -343,6 +345,8 @@ struct SDState {
 #define CYW43455_BCDC_PROTO_VER          2
 #define CYW43455_BCDC_DCMD_ERROR         BIT(0)
 #define CYW43455_BCDC_DCMD_SET           BIT(1)
+#define CYW43455_COUNTRY_BUF_SIZE        4
+#define CYW43455_COUNTRY_DATA_SIZE       (3 * CYW43455_COUNTRY_BUF_SIZE)
 #define CYW43455_BCME_BADARG             (-2)
 #define CYW43455_BCME_BUSY               (-16)
 #define CYW43455_BCME_UNSUPPORTED        (-23)
@@ -423,19 +427,24 @@ struct SDState {
 #define CYW43455_CHANSPEC_BANDWIDTH_20   0x1000
 #define CYW43455_CHANSPEC_BANDWIDTH_40   0x1800
 #define CYW43455_CHANSPEC_BAND_MASK      0xc000
+#define CYW43455_CHANSPEC_BAND_2G        0x0000
 #define CYW43455_CHANSPEC_BAND_5G        0xc000
 #define CYW43455_CHANNEL_2G_MIN           1
 #define CYW43455_CHANNEL_2G_MAX           13
+#define CYW43455_CHANNEL_5G_PROFILE       36
 #define CYW43455_CHANNEL_40_CENTER_MIN    3
 #define CYW43455_CHANNEL_40_CENTER_MAX    11
 #define CYW43455_BW_CAP_20MHZ             BIT(0)
 #define CYW43455_BW_CAP_40MHZ             BIT(1)
 #define CYW43455_BW_CAP_2G                \
     (CYW43455_BW_CAP_20MHZ | CYW43455_BW_CAP_40MHZ)
-#define CYW43455_CHANSPEC_20_COUNT        13
-#define CYW43455_CHANSPEC_40_COUNT        18
+#define CYW43455_BW_CAP_5G                CYW43455_BW_CAP_20MHZ
+#define CYW43455_CHANSPEC_2G_20_COUNT     13
+#define CYW43455_CHANSPEC_2G_40_COUNT     18
+#define CYW43455_CHANSPEC_5G_20_COUNT     1
 #define CYW43455_CHANSPEC_ALL_COUNT       \
-    (CYW43455_CHANSPEC_20_COUNT + CYW43455_CHANSPEC_40_COUNT + 1)
+    (CYW43455_CHANSPEC_2G_20_COUNT + CYW43455_CHANSPEC_2G_40_COUNT + \
+     CYW43455_CHANSPEC_5G_20_COUNT)
 #define CYW43455_CHANSPEC_LIST_LEN(_count) \
     (sizeof(uint32_t) * (1 + (_count)))
 #define CYW43455_F2_FRAME_MAX            (16 * KiB)
@@ -510,10 +519,11 @@ struct SDState {
 #define CYW43455_WLAN_CAPABILITY_ESS     BIT(0)
 #define CYW43455_WLAN_CAPABILITY_SHORT_PREAMBLE BIT(5)
 #define CYW43455_WLAN_CAPABILITY_SHORT_SLOT_TIME BIT(10)
-#define CYW43455_BSS_CAPABILITIES        \
+#define CYW43455_BSS_CAPABILITIES_2G     \
     (CYW43455_WLAN_CAPABILITY_ESS | \
      CYW43455_WLAN_CAPABILITY_SHORT_PREAMBLE | \
      CYW43455_WLAN_CAPABILITY_SHORT_SLOT_TIME)
+#define CYW43455_BSS_CAPABILITIES_5G     CYW43455_WLAN_CAPABILITY_ESS
 #define CYW43455_LINK_RATE_KBPS          72200
 #define CYW43455_SIGNAL_DBM              (-28)
 #define CYW43455_NOISE_DBM               (-95)
@@ -579,11 +589,13 @@ struct SDState {
 #define CYW43455_SCAN_SSID_OFFSET        4
 #define CYW43455_SURVEY_RESULTS_MAX      512
 #define CYW43455_ESCAN_RESULT_FIXED_LEN  12
-#define CYW43455_BSS_INFO_IE_BYTES       24
-#define CYW43455_ESCAN_BSS_INFO_LEN      \
-    (CYW43455_BSS_INFO_LEN + CYW43455_BSS_INFO_IE_BYTES)
-#define CYW43455_ESCAN_RESULT_LEN        \
-    (CYW43455_ESCAN_RESULT_FIXED_LEN + CYW43455_ESCAN_BSS_INFO_LEN)
+#define CYW43455_BSS_INFO_2G_IE_BYTES    24
+#define CYW43455_BSS_INFO_5G_IE_BYTES    25
+#define CYW43455_BSS_INFO_IE_MAX_BYTES   CYW43455_BSS_INFO_5G_IE_BYTES
+#define CYW43455_ESCAN_RESULT_MAX_LEN    \
+    (CYW43455_ESCAN_RESULT_FIXED_LEN + CYW43455_BSS_INFO_LEN + \
+     CYW43455_BSS_INFO_IE_MAX_BYTES)
+#define CYW43455_ESCAN_EVENT_DELAY_MS_DEFAULT 10
 
 enum {
     CYW43455_ESCAN_EVENT_NONE,
@@ -650,6 +662,7 @@ struct CYW43455SDIOState {
     uint32_t wrapper_ioctl[ARRAY_SIZE(cyw43455_sdio_cores)];
     uint32_t wrapper_reset[ARRAY_SIZE(cyw43455_sdio_cores)];
     uint32_t armcr4_bankidx;
+    uint8_t armcr4_ram[CYW43455_ARMCR4_RAM_SIZE];
     uint32_t sdio_intstatus;
     uint32_t sdio_hostintmask;
     uint32_t sdio_tosbmailbox;
@@ -732,7 +745,10 @@ struct CYW43455SDIOState {
     uint8_t ap_ssid_len;
     uint8_t ap_ssid[CYW43455_AP_SSID_MAX];
     uint8_t ap_events;
+    QEMUTimer *escan_timer;
+    uint32_t escan_event_delay_ms;
     uint8_t escan_event_phase;
+    bool escan_event_ready;
     uint16_t escan_sync_id;
     uint32_t ap_chanspec;
     uint32_t chanspec;
@@ -747,6 +763,9 @@ struct CYW43455SDIOState {
     uint32_t nd_hostip_count;
     uint32_t pm2_sleep_ret;
     uint32_t power_mode;
+    uint8_t country_abbrev[CYW43455_COUNTRY_BUF_SIZE];
+    uint32_t country_rev;
+    uint8_t country_code[CYW43455_COUNTRY_BUF_SIZE];
     int32_t obss_coex;
     uint32_t qtxpower;
     uint32_t mfp_mode;
@@ -767,6 +786,8 @@ struct CYW43455SDIOState {
     uint32_t bcn_timeout;
     int32_t roam_trigger;
     int32_t roam_delta;
+    int32_t roam_trigger_5g;
+    int32_t roam_delta_5g;
     uint64_t tx_bytes;
     uint64_t rx_bytes;
     uint64_t tx_multicast_bytes;
@@ -786,7 +807,7 @@ static void cyw43455_sdio_emit_tx_credit_frame(CYW43455SDIOState *s);
 static void cyw43455_sdio_emit_rx_glom(CYW43455SDIOState *s);
 static void cyw43455_sdio_advance_rx(CYW43455SDIOState *s);
 
-/* Only identification is calibrated here, not proprietary firmware execution. */
+/* Identification is calibrated here, not proprietary firmware execution. */
 static uint16_t cyw43455_sdio_device_id(CYW43455SDIOState *s)
 {
     return s->hardware_profile == CYW43455_SDIO_PROFILE_PI5 ?
@@ -875,6 +896,7 @@ static bool cyw43455_sdio_chanspec_info(uint32_t chanspec,
     uint32_t center_channel = chanspec & CYW43455_CHANSPEC_CHANNEL_MASK;
     uint32_t sideband = chanspec & CYW43455_CHANSPEC_SIDEBAND_MASK;
     uint32_t bandwidth = chanspec & CYW43455_CHANSPEC_BANDWIDTH_MASK;
+    uint32_t band = chanspec & CYW43455_CHANSPEC_BAND_MASK;
     int control;
 
     if (chanspec & ~(CYW43455_CHANSPEC_CHANNEL_MASK |
@@ -883,16 +905,17 @@ static bool cyw43455_sdio_chanspec_info(uint32_t chanspec,
                      CYW43455_CHANSPEC_BAND_MASK)) {
         return false;
     }
-    if ((chanspec & CYW43455_CHANSPEC_BAND_MASK) ==
-        CYW43455_CHANSPEC_BAND_5G) {
-        if (chanspec != CYW43455_CHANSPEC_5G_CH36_20MHZ) {
+    if (band == CYW43455_CHANSPEC_BAND_5G) {
+        if (bandwidth != CYW43455_CHANSPEC_BANDWIDTH_20 ||
+            sideband != CYW43455_CHANSPEC_SIDEBAND_LOWER ||
+            center_channel != CYW43455_CHANNEL_5G_PROFILE) {
             return false;
         }
-        *control_channel = 36;
+        *control_channel = center_channel;
         *bandwidth_mhz = 20;
         return true;
     }
-    if ((chanspec & CYW43455_CHANSPEC_BAND_MASK) != 0) {
+    if (band != CYW43455_CHANSPEC_BAND_2G) {
         return false;
     }
 
@@ -929,8 +952,40 @@ static bool cyw43455_sdio_chanspec_info(uint32_t chanspec,
     return true;
 }
 
+static bool cyw43455_sdio_chanspec_is_5g(uint32_t chanspec)
+{
+    return (chanspec & CYW43455_CHANSPEC_BAND_MASK) ==
+           CYW43455_CHANSPEC_BAND_5G;
+}
+
+static bool cyw43455_sdio_channel_supported(uint16_t channel)
+{
+    uint8_t bandwidth_mhz;
+    uint8_t control_channel;
+
+    return (channel >= CYW43455_CHANNEL_2G_MIN &&
+            channel <= CYW43455_CHANNEL_2G_MAX) ||
+           channel == CYW43455_CHANNEL_5G_PROFILE ||
+           cyw43455_sdio_chanspec_info(channel, &control_channel,
+                                       &bandwidth_mhz);
+}
+
+static uint32_t cyw43455_sdio_bss_ie_len(CYW43455SDIOState *s)
+{
+    return cyw43455_sdio_chanspec_is_5g(s->ap_chanspec) ?
+           CYW43455_BSS_INFO_5G_IE_BYTES :
+           CYW43455_BSS_INFO_2G_IE_BYTES;
+}
+
+static uint32_t cyw43455_sdio_bss_info_len(CYW43455SDIOState *s,
+                                            bool include_ies)
+{
+    return CYW43455_BSS_INFO_LEN +
+           (include_ies ? cyw43455_sdio_bss_ie_len(s) : 0);
+}
+
 static uint32_t cyw43455_sdio_ap_ies(CYW43455SDIOState *s, uint8_t *output,
-                                    bool ds_parameter)
+                                     bool ds_parameter)
 {
     uint8_t *ie = output;
 
@@ -953,27 +1008,50 @@ static uint32_t cyw43455_sdio_ap_ies(CYW43455SDIOState *s, uint8_t *output,
 static uint32_t cyw43455_sdio_ap_ie_len(CYW43455SDIOState *s)
 {
     return s->ap_ssid_len + 7 +
-           ((s->chanspec & CYW43455_CHANSPEC_BAND_MASK) ? 0 : 3);
+           (cyw43455_sdio_chanspec_is_5g(s->chanspec) ? 0 : 3);
 }
 
 static void cyw43455_sdio_fill_bss_info(CYW43455SDIOState *s,
                                         uint8_t *bss, uint32_t length,
                                         bool include_ies, bool local_ap)
 {
+    static const uint8_t rates_2g[] = { 0x82, 0x84, 0x8b, 0x96 };
+    static const uint8_t rates_5g[] = {
+        0x8c, 0x12, 0x98, 0x24, 0xb0, 0x48, 0x60, 0x6c,
+    };
+    static const uint8_t rates_ap[] = { 0x8c, 0x98, 0xb0 };
     const size_t ssid_len = local_ap ? s->ap_ssid_len :
                                       strlen(CYW43455_BSS_SSID);
     const uint8_t *ssid = local_ap ? s->ap_ssid :
                                     (const uint8_t *)CYW43455_BSS_SSID;
     uint32_t chanspec = local_ap ? s->chanspec : s->ap_chanspec;
-    uint32_t ie_len = local_ap ? cyw43455_sdio_ap_ie_len(s) :
-                                CYW43455_BSS_INFO_IE_BYTES;
+    const uint8_t *rates;
+    size_t rate_count;
+    uint16_t capabilities;
     uint8_t bandwidth_mhz;
     uint8_t control_channel;
+    bool is_5g = cyw43455_sdio_chanspec_is_5g(chanspec);
+    uint32_t ie_len = local_ap ? cyw43455_sdio_ap_ie_len(s) :
+                                cyw43455_sdio_bss_ie_len(s);
 
     assert(length >= CYW43455_BSS_INFO_LEN);
     assert(!include_ies || length >= CYW43455_BSS_INFO_LEN + ie_len);
     assert(cyw43455_sdio_chanspec_info(chanspec, &control_channel,
                                       &bandwidth_mhz));
+    if (local_ap) {
+        rates = rates_ap;
+        rate_count = ARRAY_SIZE(rates_ap);
+        capabilities = is_5g ? CYW43455_BSS_CAPABILITIES_5G :
+                               CYW43455_BSS_CAPABILITIES_2G;
+    } else if (is_5g) {
+        rates = rates_5g;
+        rate_count = ARRAY_SIZE(rates_5g);
+        capabilities = CYW43455_BSS_CAPABILITIES_5G;
+    } else {
+        rates = rates_2g;
+        rate_count = ARRAY_SIZE(rates_2g);
+        capabilities = CYW43455_BSS_CAPABILITIES_2G;
+    }
     memset(bss, 0, length);
     stl_le_p(bss, CYW43455_BSS_INFO_VERSION);
     stl_le_p(bss + 4, length);
@@ -982,16 +1060,12 @@ static void cyw43455_sdio_fill_bss_info(CYW43455SDIOState *s,
     stw_le_p(bss + CYW43455_BSS_INFO_BEACON_OFFSET,
              local_ap ? s->ap_beacon_period : CYW43455_BSS_BEACON_PERIOD);
     stw_le_p(bss + CYW43455_BSS_INFO_CAP_OFFSET,
-             CYW43455_BSS_CAPABILITIES);
+             capabilities);
     bss[CYW43455_BSS_INFO_SSID_LEN_OFFSET] = ssid_len;
     memcpy(bss + CYW43455_BSS_INFO_SSID_OFFSET,
            ssid, ssid_len);
-    stl_le_p(bss + CYW43455_BSS_INFO_RATE_COUNT_OFFSET, local_ap ? 3 : 1);
-    if (local_ap) {
-        memcpy(bss + CYW43455_BSS_INFO_RATES_OFFSET, "\x8c\x98\xb0", 3);
-    } else {
-        bss[CYW43455_BSS_INFO_RATES_OFFSET] = 144; /* Historical STA HLE. */
-    }
+    stl_le_p(bss + CYW43455_BSS_INFO_RATE_COUNT_OFFSET, rate_count);
+    memcpy(bss + CYW43455_BSS_INFO_RATES_OFFSET, rates, rate_count);
     stw_le_p(bss + CYW43455_BSS_INFO_CHANSPEC_OFFSET,
              chanspec);
     bss[CYW43455_BSS_INFO_DTIM_OFFSET] = local_ap ? s->ap_dtim_period :
@@ -1021,12 +1095,15 @@ static void cyw43455_sdio_fill_bss_info(CYW43455SDIOState *s,
         memcpy(ie, CYW43455_BSS_SSID, ssid_len);
         ie += ssid_len;
         *ie++ = 1; /* supported rates */
-        *ie++ = 4;
-        memcpy(ie, "\x82\x84\x8b\x96", 4);
-        ie += 4;
-        *ie++ = 3; /* DS parameter set */
-        *ie++ = 1;
-        *ie = control_channel;
+        *ie++ = rate_count;
+        memcpy(ie, rates, rate_count);
+        ie += rate_count;
+        if (!is_5g) {
+            *ie++ = 3; /* DS parameter set */
+            *ie++ = 1;
+            *ie++ = control_channel;
+        }
+        assert(ie == bss + length);
     }
 }
 
@@ -1415,24 +1492,56 @@ static void cyw43455_sdio_emit_link_event(CYW43455SDIOState *s)
                                    s->f2_rx_frame[9]);
 }
 
+static void cyw43455_sdio_advance_rx(CYW43455SDIOState *s);
+
+static void cyw43455_sdio_schedule_escan_event(CYW43455SDIOState *s)
+{
+    bool partial = s->escan_event_phase == CYW43455_ESCAN_EVENT_PARTIAL;
+
+    assert(s->escan_event_phase != CYW43455_ESCAN_EVENT_NONE);
+    s->escan_event_ready = !s->escan_event_delay_ms;
+    trace_cyw43455_sdio_escan_scheduled(s->escan_sync_id, partial,
+                                        s->escan_event_delay_ms);
+    if (!s->escan_event_ready) {
+        timer_mod(s->escan_timer,
+                  qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) +
+                  s->escan_event_delay_ms);
+    }
+}
+
+static void cyw43455_sdio_escan_timeout(void *opaque)
+{
+    CYW43455SDIOState *s = opaque;
+
+    if (s->escan_event_phase) {
+        s->escan_event_ready = true;
+        cyw43455_sdio_advance_rx(s);
+    }
+}
+
 static void cyw43455_sdio_emit_escan_event(CYW43455SDIOState *s)
 {
-    uint8_t result[CYW43455_ESCAN_RESULT_LEN] = { };
+    uint8_t result[CYW43455_ESCAN_RESULT_MAX_LEN] = { };
     bool partial = s->escan_event_phase == CYW43455_ESCAN_EVENT_PARTIAL;
     uint32_t data_len = 0;
     uint32_t status = CYW43455_EVENT_STATUS_SUCCESS;
 
     assert(s->escan_event_phase != CYW43455_ESCAN_EVENT_NONE);
+    assert(s->escan_event_ready);
+    timer_del(s->escan_timer);
+    s->escan_event_ready = false;
     if (partial) {
-        data_len = sizeof(result);
+        uint32_t bss_len = cyw43455_sdio_bss_info_len(s, true);
+
+        data_len = CYW43455_ESCAN_RESULT_FIXED_LEN + bss_len;
         status = CYW43455_EVENT_STATUS_PARTIAL;
-        stl_le_p(result, sizeof(result));
+        stl_le_p(result, data_len);
         stl_le_p(result + 4, CYW43455_ESCAN_RESULT_VERSION);
         stw_le_p(result + 8, s->escan_sync_id);
         stw_le_p(result + 10, 1);
         cyw43455_sdio_fill_bss_info(
             s, result + CYW43455_ESCAN_RESULT_FIXED_LEN,
-            CYW43455_ESCAN_BSS_INFO_LEN, true, false);
+            bss_len, true, false);
     }
 
     cyw43455_sdio_emit_event(s, CYW43455_EVENT_ESCAN_RESULT, status, 0,
@@ -1494,7 +1603,12 @@ static void cyw43455_sdio_advance_rx(CYW43455SDIOState *s)
     }
 
     if (s->escan_event_phase) {
-        cyw43455_sdio_emit_escan_event(s);
+        if (!s->escan_event_ready && !timer_pending(s->escan_timer)) {
+            cyw43455_sdio_schedule_escan_event(s);
+        }
+        if (s->escan_event_ready) {
+            cyw43455_sdio_emit_escan_event(s);
+        }
         return;
     }
 
@@ -1606,7 +1720,7 @@ static int32_t cyw43455_sdio_get_bw_cap(const uint8_t *data,
         capability = CYW43455_BW_CAP_2G;
         break;
     case CYW43455_WLC_BAND_5G:
-        capability = CYW43455_BW_CAP_20MHZ;
+        capability = CYW43455_BW_CAP_5G;
         break;
     default:
         capability = 0;
@@ -1635,7 +1749,7 @@ static int32_t cyw43455_sdio_set_bw_cap(const uint8_t *data,
     if ((band == CYW43455_WLC_BAND_2G &&
          capability == CYW43455_BW_CAP_2G) ||
         (band == CYW43455_WLC_BAND_5G &&
-         capability == CYW43455_BW_CAP_20MHZ)) {
+         capability == CYW43455_BW_CAP_5G)) {
         status = 0;
     } else {
         status = CYW43455_BCME_BADARG;
@@ -1649,39 +1763,38 @@ static int32_t cyw43455_sdio_get_chanspecs(const uint8_t *data,
                                             uint8_t *output,
                                             uint32_t output_len)
 {
+    uint32_t band;
+    uint32_t bandwidth;
     uint32_t count;
     uint32_t filter;
     unsigned int index = 0;
     unsigned int channel;
-    bool five_ghz;
 
     if (data_len < sizeof(uint16_t)) {
         trace_cyw43455_sdio_chanspecs(0, 0, CYW43455_BCME_BADLEN);
         return CYW43455_BCME_BADLEN;
     }
     filter = lduw_le_p(data);
-    five_ghz = (filter & CYW43455_CHANSPEC_BAND_MASK) ==
-               CYW43455_CHANSPEC_BAND_5G;
-    if ((filter & (CYW43455_CHANSPEC_CHANNEL_MASK |
-                   CYW43455_CHANSPEC_SIDEBAND_MASK)) != 0 ||
-        ((filter & CYW43455_CHANSPEC_BAND_MASK) && !five_ghz)) {
+    if (filter & (CYW43455_CHANSPEC_CHANNEL_MASK |
+                  CYW43455_CHANSPEC_SIDEBAND_MASK)) {
         trace_cyw43455_sdio_chanspecs(filter, 0, CYW43455_BCME_BADARG);
         return CYW43455_BCME_BADARG;
     }
-    switch (filter & CYW43455_CHANSPEC_BANDWIDTH_MASK) {
-    case 0:
-        count = five_ghz ? 1 : CYW43455_CHANSPEC_ALL_COUNT;
-        break;
-    case CYW43455_CHANSPEC_BANDWIDTH_20:
-        count = five_ghz ? 1 : CYW43455_CHANSPEC_20_COUNT;
-        break;
-    case CYW43455_CHANSPEC_BANDWIDTH_40:
-        if (five_ghz) {
-            return CYW43455_BCME_BADARG;
-        }
-        count = CYW43455_CHANSPEC_40_COUNT;
-        break;
-    default:
+    band = filter & CYW43455_CHANSPEC_BAND_MASK;
+    bandwidth = filter & CYW43455_CHANSPEC_BANDWIDTH_MASK;
+    if (filter == 0) {
+        count = CYW43455_CHANSPEC_ALL_COUNT;
+    } else if (band == CYW43455_CHANSPEC_BAND_2G &&
+               bandwidth == CYW43455_CHANSPEC_BANDWIDTH_20) {
+        count = CYW43455_CHANSPEC_2G_20_COUNT;
+    } else if (band == CYW43455_CHANSPEC_BAND_2G &&
+               bandwidth == CYW43455_CHANSPEC_BANDWIDTH_40) {
+        count = CYW43455_CHANSPEC_2G_40_COUNT;
+    } else if (band == CYW43455_CHANSPEC_BAND_5G &&
+               (bandwidth == 0 ||
+                bandwidth == CYW43455_CHANSPEC_BANDWIDTH_20)) {
+        count = CYW43455_CHANSPEC_5G_20_COUNT;
+    } else {
         trace_cyw43455_sdio_chanspecs(filter, 0, CYW43455_BCME_BADARG);
         return CYW43455_BCME_BADARG;
     }
@@ -1692,20 +1805,18 @@ static int32_t cyw43455_sdio_get_chanspecs(const uint8_t *data,
     }
 
     stl_le_p(output, count);
-    if (five_ghz) {
-        stl_le_p(output + sizeof(uint32_t),
-                 CYW43455_CHANSPEC_5G_CH36_20MHZ);
-        trace_cyw43455_sdio_chanspecs(filter, count, 0);
-        return 0;
-    }
-    if (filter == 0 || filter == CYW43455_CHANSPEC_BANDWIDTH_20) {
+    if (filter == 0 ||
+        (band == CYW43455_CHANSPEC_BAND_2G &&
+         bandwidth == CYW43455_CHANSPEC_BANDWIDTH_20)) {
         for (channel = CYW43455_CHANNEL_2G_MIN;
              channel <= CYW43455_CHANNEL_2G_MAX; channel++) {
             stl_le_p(output + sizeof(uint32_t) * ++index,
                      CYW43455_CHANSPEC_BANDWIDTH_20 | channel);
         }
     }
-    if (filter == 0 || filter == CYW43455_CHANSPEC_BANDWIDTH_40) {
+    if (filter == 0 ||
+        (band == CYW43455_CHANSPEC_BAND_2G &&
+         bandwidth == CYW43455_CHANSPEC_BANDWIDTH_40)) {
         for (channel = CYW43455_CHANNEL_40_CENTER_MIN;
              channel <= CYW43455_CHANNEL_40_CENTER_MAX; channel++) {
             stl_le_p(output + sizeof(uint32_t) * ++index,
@@ -1719,7 +1830,7 @@ static int32_t cyw43455_sdio_get_chanspecs(const uint8_t *data,
                      CYW43455_CHANSPEC_SIDEBAND_LOWER | channel);
         }
     }
-    if (filter == 0) {
+    if (filter == 0 || band == CYW43455_CHANSPEC_BAND_5G) {
         stl_le_p(output + sizeof(uint32_t) * ++index,
                  CYW43455_CHANSPEC_5G_CH36_20MHZ);
     }
@@ -1896,11 +2007,11 @@ static int32_t cyw43455_sdio_bss_info(CYW43455SDIOState *s,
 {
     uint8_t *bss;
     uint32_t requested_len;
-    bool include_ies = s->ap_mode || s->explicit_association || s->explicit_role;
+    bool include_ies = s->ap_mode || s->explicit_association ||
+                       s->explicit_role;
     uint32_t bss_len = s->ap_mode ? CYW43455_BSS_INFO_LEN +
                                    cyw43455_sdio_ap_ie_len(s) :
-                      include_ies ? CYW43455_ESCAN_BSS_INFO_LEN :
-                                    CYW43455_BSS_INFO_LEN;
+                       cyw43455_sdio_bss_info_len(s, include_ies);
 
     if (s->ap_mode ? !s->ap_started : !s->firmware_connected) {
         return CYW43455_BCME_NOTASSOCIATED;
@@ -1952,6 +2063,7 @@ static int32_t cyw43455_sdio_start_escan(CYW43455SDIOState *s,
     uint32_t counts;
     uint32_t channel_count;
     uint32_t ssid_count;
+    uint32_t ap_band;
     uint8_t ap_bandwidth_mhz;
     uint8_t ap_control_channel;
     size_t escan_fixed_len;
@@ -2040,9 +2152,12 @@ static int32_t cyw43455_sdio_start_escan(CYW43455SDIOState *s,
     assert(cyw43455_sdio_chanspec_info(s->ap_chanspec,
                                       &ap_control_channel,
                                       &ap_bandwidth_mhz));
+    ap_band = cyw43455_sdio_chanspec_is_5g(s->ap_chanspec) ?
+              CYW43455_WLC_BAND_5G : CYW43455_WLC_BAND_2G;
     channel_match = channel_count == 0;
     for (i = 0; i < channel_count; i++) {
         uint32_t requested = lduw_le_p(channels + i * sizeof(uint16_t));
+        uint32_t requested_band;
         uint8_t requested_bandwidth_mhz;
         uint8_t requested_control_channel;
 
@@ -2051,8 +2166,33 @@ static int32_t cyw43455_sdio_start_escan(CYW43455SDIOState *s,
                                          &requested_bandwidth_mhz)) {
             requested_control_channel = requested &
                                         CYW43455_CHANSPEC_CHANNEL_MASK;
+            if (requested & (CYW43455_CHANSPEC_SIDEBAND_MASK |
+                             CYW43455_CHANSPEC_BANDWIDTH_MASK |
+                             CYW43455_CHANSPEC_BAND_MASK)) {
+                switch (requested & CYW43455_CHANSPEC_BAND_MASK) {
+                case CYW43455_CHANSPEC_BAND_2G:
+                    requested_band = CYW43455_WLC_BAND_2G;
+                    break;
+                case CYW43455_CHANSPEC_BAND_5G:
+                    requested_band = CYW43455_WLC_BAND_5G;
+                    break;
+                default:
+                    requested_band = CYW43455_WLC_BAND_AUTO;
+                    break;
+                }
+            } else {
+                requested_band = requested_control_channel >
+                                 CYW43455_CHANNEL_2G_MAX ?
+                                 CYW43455_WLC_BAND_5G :
+                                 CYW43455_WLC_BAND_2G;
+            }
+        } else {
+            requested_band = cyw43455_sdio_chanspec_is_5g(requested) ?
+                             CYW43455_WLC_BAND_5G :
+                             CYW43455_WLC_BAND_2G;
         }
-        if (requested_control_channel == ap_control_channel) {
+        if (requested_band == ap_band &&
+            requested_control_channel == ap_control_channel) {
             channel_match = true;
         }
     }
@@ -2119,6 +2259,37 @@ static bool cyw43455_sdio_supported_set_iovar(const char *name)
     }
 
     return false;
+}
+
+static void cyw43455_sdio_reset_country(CYW43455SDIOState *s)
+{
+    memset(s->country_abbrev, 0, sizeof(s->country_abbrev));
+    memcpy(s->country_abbrev, "00", 2);
+    s->country_rev = 0;
+    memset(s->country_code, 0, sizeof(s->country_code));
+    memcpy(s->country_code, "00", 2);
+}
+
+static bool cyw43455_sdio_country_valid(const uint8_t *abbrev,
+                                        const uint8_t *code)
+{
+    unsigned int i;
+
+    if (!abbrev[0] || !abbrev[1] || abbrev[2] || abbrev[3] ||
+        !code[0] || !code[1] || code[3]) {
+        return false;
+    }
+    for (i = 0; i < 2; i++) {
+        if (!g_ascii_isupper(abbrev[i]) && !g_ascii_isdigit(abbrev[i])) {
+            return false;
+        }
+    }
+    for (i = 0; i < 3 && code[i]; i++) {
+        if (!g_ascii_isupper(code[i]) && !g_ascii_isdigit(code[i])) {
+            return false;
+        }
+    }
+    return true;
 }
 
 static void cyw43455_sdio_pfn_clear(CYW43455SDIOState *s)
@@ -2205,8 +2376,7 @@ static int32_t cyw43455_sdio_set_pfn(CYW43455SDIOState *s,
         for (i = 0; i < count; i++) {
             uint16_t channel = lduw_le_p(data + 8 + i * sizeof(channel));
 
-            if (channel < CYW43455_CHANNEL_2G_MIN ||
-                channel > CYW43455_CHANNEL_2G_MAX) {
+            if (!cyw43455_sdio_channel_supported(channel)) {
                 return CYW43455_BCME_BADARG;
             }
             s->pfn_channels[i] = channel;
@@ -2411,14 +2581,19 @@ static int32_t cyw43455_sdio_set_iovar(CYW43455SDIOState *s,
     if (!strcmp(name, "wpaie")) {
         return data_len == 0 ? 0 : CYW43455_BCME_UNSUPPORTED;
     }
-    if (s->ap_mode && !strcmp(name, "mfp")) {
-        if (data_len != sizeof(uint32_t)) {
+    if (!strcmp(name, "country")) {
+        if (data_len != CYW43455_COUNTRY_DATA_SIZE) {
             return CYW43455_BCME_BADLEN;
         }
-        if (ldl_le_p(data)) {
-            return CYW43455_BCME_UNSUPPORTED;
+        if (!cyw43455_sdio_country_valid(
+                data, data + 2 * CYW43455_COUNTRY_BUF_SIZE)) {
+            return CYW43455_BCME_BADARG;
         }
-        s->mfp_mode = CYW43455_MFP_NONE;
+        memcpy(s->country_abbrev, data, sizeof(s->country_abbrev));
+        s->country_rev = ldl_le_p(data + CYW43455_COUNTRY_BUF_SIZE);
+        memcpy(s->country_code,
+               data + 2 * CYW43455_COUNTRY_BUF_SIZE,
+               sizeof(s->country_code));
         return 0;
     }
 
@@ -2643,7 +2818,9 @@ static int32_t cyw43455_sdio_set_iovar(CYW43455SDIOState *s,
             status = CYW43455_BCME_BADLEN;
         } else {
             mode = ldl_le_p(data);
-            if (mode > CYW43455_MFP_REQUIRED) {
+            if (s->ap_mode && mode != CYW43455_MFP_NONE) {
+                status = CYW43455_BCME_UNSUPPORTED;
+            } else if (mode > CYW43455_MFP_REQUIRED) {
                 status = CYW43455_BCME_BADARG;
             } else {
                 s->mfp_mode = mode;
@@ -2710,7 +2887,10 @@ static int32_t cyw43455_sdio_roam_parameter(CYW43455SDIOState *s,
                                              uint8_t *output,
                                              uint32_t output_len)
 {
-    int32_t *parameter = trigger ? &s->roam_trigger : &s->roam_delta;
+    int32_t *parameter_2g = trigger ? &s->roam_trigger : &s->roam_delta;
+    int32_t *parameter_5g = trigger ? &s->roam_trigger_5g :
+                                      &s->roam_delta_5g;
+    int32_t *parameter = NULL;
     int32_t value = 0;
     uint32_t band = CYW43455_WLC_BAND_AUTO;
     int32_t status = 0;
@@ -2721,12 +2901,26 @@ static int32_t cyw43455_sdio_roam_parameter(CYW43455SDIOState *s,
     } else {
         value = ldl_le_p(input);
         band = ldl_le_p(input + sizeof(uint32_t));
-        if (band != CYW43455_WLC_BAND_2G &&
-            band != CYW43455_WLC_BAND_ALL) {
+        switch (band) {
+        case CYW43455_WLC_BAND_2G:
+            parameter = parameter_2g;
+            break;
+        case CYW43455_WLC_BAND_5G:
+            parameter = parameter_5g;
+            break;
+        case CYW43455_WLC_BAND_ALL:
+            parameter = parameter_2g;
+            if (set) {
+                *parameter_5g = value;
+            }
+            break;
+        default:
             status = CYW43455_BCME_BADARG;
-        } else if (set) {
+            break;
+        }
+        if (status == 0 && set) {
             *parameter = value;
-        } else {
+        } else if (status == 0) {
             value = *parameter;
             stl_le_p(output, value);
             stl_le_p(output + sizeof(uint32_t), band);
@@ -3171,6 +3365,14 @@ static int32_t cyw43455_sdio_control_reply(CYW43455SDIOState *s,
         } else if (!strcmp(iovar, "cur_etheraddr")) {
             memcpy(output, s->current_mac,
                    MIN(sizeof(s->current_mac), output_len));
+        } else if (!strcmp(iovar, "country")) {
+            if (output_len < CYW43455_COUNTRY_DATA_SIZE) {
+                return CYW43455_BCME_BADLEN;
+            }
+            memcpy(output, s->country_abbrev, sizeof(s->country_abbrev));
+            stl_le_p(output + CYW43455_COUNTRY_BUF_SIZE, s->country_rev);
+            memcpy(output + 2 * CYW43455_COUNTRY_BUF_SIZE,
+                   s->country_code, sizeof(s->country_code));
         } else if (!strcmp(iovar, "ver")) {
             cyw43455_sdio_store_string(output, output_len,
                                        "QEMU CYW43455 synthetic 1.0\n");
@@ -3210,7 +3412,11 @@ static int32_t cyw43455_sdio_control_reply(CYW43455SDIOState *s,
             return cyw43455_sdio_get_bw_cap(iovar_data, iovar_data_len,
                                             output, output_len);
         } else if (!strcmp(iovar, "nmode")) {
-            /* Keep cfg80211 HT state consistent with our HT chanspec/BSS. */
+            /*
+             * brcmfmac decodes our 20 MHz chanspec as HT20.  Advertise the
+             * matching firmware capability so cfg80211 can keep an active
+             * station chandef after regulatory enforcement.
+             */
             cyw43455_sdio_store_u32(output, output_len, 0, 1);
         } else if (!strcmp(iovar, "vhtmode") ||
                    !strcmp(iovar, "mimo_bw_cap")) {
@@ -3716,12 +3922,15 @@ static void cyw43455_sdio_process_tx_frame(CYW43455SDIOState *s)
 
     stl_le_p(response + CYW43455_SDPCM_HEADER_LEN, command);
     stl_le_p(response + CYW43455_SDPCM_HEADER_LEN + 4, data_len);
-    status = extract32(flags, 12, 4) ? CYW43455_BCME_UNSUPPORTED :
-             cyw43455_sdio_control_reply(
-        s, command, set,
-        request + data_offset + CYW43455_BCDC_HEADER_LEN, payload_len,
-        response + CYW43455_SDPCM_HEADER_LEN + CYW43455_BCDC_HEADER_LEN,
-        response_payload_len, iovar, sizeof(iovar));
+    if (extract32(flags, 12, 4)) {
+        status = CYW43455_BCME_UNSUPPORTED;
+    } else {
+        status = cyw43455_sdio_control_reply(
+            s, command, set,
+            request + data_offset + CYW43455_BCDC_HEADER_LEN, payload_len,
+            response + CYW43455_SDPCM_HEADER_LEN + CYW43455_BCDC_HEADER_LEN,
+            response_payload_len, iovar, sizeof(iovar));
+    }
     if (status < 0) {
         flags |= CYW43455_BCDC_DCMD_ERROR;
     }
@@ -3753,10 +3962,9 @@ static void cyw43455_sdio_process_tx_frame(CYW43455SDIOState *s)
         s->link_event_sent = false;
         trace_cyw43455_sdio_link_rearmed();
     }
-    if (s->auto_associate && !s->explicit_association &&
-        !s->explicit_role && set &&
-        command == CYW43455_C_SET_PROMISC &&
-        status == 0 && !s->link_event_sent && !s->link_event_pending &&
+    if (set && command == CYW43455_C_SET_PROMISC && status == 0 &&
+        s->auto_associate && !s->explicit_association && !s->explicit_role &&
+        !s->link_event_sent && !s->link_event_pending &&
         !qemu_get_queue(s->nic)->link_down) {
         /* Netdev open has completed before this asynchronous filter update. */
         s->link_event_up = true;
@@ -3816,6 +4024,12 @@ static uint32_t cyw43455_sdio_backplane_readl(CYW43455SDIOState *s,
     uint32_t sdio_offset;
 
     address &= ~3U;
+    if (address >= CYW43455_ARMCR4_RAM_BASE &&
+        address - CYW43455_ARMCR4_RAM_BASE <=
+        CYW43455_ARMCR4_RAM_SIZE - sizeof(uint32_t)) {
+        return ldl_le_p(s->armcr4_ram +
+                        address - CYW43455_ARMCR4_RAM_BASE);
+    }
     if (address == CYW43455_ENUM_BASE) {
         return (CYW43455_CHIP_ID & ~0xf0000U) |
                ((uint32_t)cyw43455_sdio_chip_revision(s) << 16);
@@ -3881,6 +4095,13 @@ static void cyw43455_sdio_backplane_writel(CYW43455SDIOState *s,
     uint32_t sdio_offset;
 
     address &= ~3U;
+    if (address >= CYW43455_ARMCR4_RAM_BASE &&
+        address - CYW43455_ARMCR4_RAM_BASE <=
+        CYW43455_ARMCR4_RAM_SIZE - sizeof(uint32_t)) {
+        stl_le_p(s->armcr4_ram + address - CYW43455_ARMCR4_RAM_BASE,
+                 value);
+        return;
+    }
     for (i = 0; i < ARRAY_SIZE(cyw43455_sdio_cores); i++) {
         if (address == cyw43455_sdio_cores[i].wrapper +
                        CYW43455_BCMA_IOCTL) {
@@ -4081,6 +4302,7 @@ static void cyw43455_sdio_reset_state(CYW43455SDIOState *s)
     }
     timer_del(s->tx_credit_timer);
     timer_del(s->rx_glom_timer);
+    timer_del(s->escan_timer);
     timer_del(s->fws_timer);
     if (s->fws_migration_blocker) {
         migrate_del_blocker(&s->fws_migration_blocker);
@@ -4107,6 +4329,7 @@ static void cyw43455_sdio_reset_state(CYW43455SDIOState *s)
     memset(s->wrapper_ioctl, 0, sizeof(s->wrapper_ioctl));
     memset(s->wrapper_reset, 0, sizeof(s->wrapper_reset));
     s->armcr4_bankidx = 0;
+    memset(s->armcr4_ram, 0, sizeof(s->armcr4_ram));
     s->sdio_intstatus = 0;
     s->sdio_hostintmask = 0;
     s->sdio_tosbmailbox = 0;
@@ -4142,6 +4365,7 @@ static void cyw43455_sdio_reset_state(CYW43455SDIOState *s)
     s->association_requested = false;
     s->link_ssid_pending = false;
     s->escan_event_phase = CYW43455_ESCAN_EVENT_NONE;
+    s->escan_event_ready = false;
     s->escan_sync_id = 0;
     s->chanspec = s->ap_chanspec;
     s->survey_duration_ms = 0;
@@ -4159,6 +4383,7 @@ static void cyw43455_sdio_reset_state(CYW43455SDIOState *s)
     s->nd_hostip_count = 0;
     s->pm2_sleep_ret = 0;
     s->power_mode = CYW43455_PM_OFF;
+    cyw43455_sdio_reset_country(s);
     s->obss_coex = CYW43455_OBSS_COEX_OFF;
     s->qtxpower = CYW43455_QTXPOWER_DEFAULT_QDBM;
     s->mfp_mode = CYW43455_MFP_NONE;
@@ -4171,6 +4396,8 @@ static void cyw43455_sdio_reset_state(CYW43455SDIOState *s)
     s->bcn_timeout = 0;
     s->roam_trigger = 0;
     s->roam_delta = 0;
+    s->roam_trigger_5g = 0;
+    s->roam_delta_5g = 0;
     s->tx_bytes = 0;
     s->rx_bytes = 0;
     s->tx_multicast_bytes = 0;
@@ -4955,6 +5182,10 @@ static void cyw43455_sdio_realize(DeviceState *device, Error **errp)
                    "rx-glom-delay-ms must be 0..1000", CYW43455_RX_GLOM_MAX);
         return;
     }
+    if (s->escan_event_delay_ms > 1000) {
+        error_setg(errp, "escan-event-delay-ms must be 0..1000");
+        return;
+    }
     if (!s->fws_status_batch_max ||
         s->fws_status_batch_max > CYW43455_FWS_STATUS_BATCH_MAX) {
         error_setg(errp, "fws-status-batch-max must be 1..%u",
@@ -4968,10 +5199,9 @@ static void cyw43455_sdio_realize(DeviceState *device, Error **errp)
                    "must be 0..1000 milliseconds");
         return;
     }
-    if ((s->ap_chanspec & CYW43455_CHANSPEC_BAND_MASK) ||
-        !cyw43455_sdio_chanspec_info(s->ap_chanspec, &control_channel,
+    if (!cyw43455_sdio_chanspec_info(s->ap_chanspec, &control_channel,
                                      &bandwidth_mhz)) {
-        error_setg(errp, "invalid 2.4 GHz AP chanspec 0x%04x",
+        error_setg(errp, "unsupported AP chanspec 0x%04x",
                    s->ap_chanspec);
         return;
     }
@@ -4980,6 +5210,8 @@ static void cyw43455_sdio_realize(DeviceState *device, Error **errp)
                                       cyw43455_sdio_emit_tx_credit, s);
     s->rx_glom_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
                                     cyw43455_sdio_rx_glom_timeout, s);
+    s->escan_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
+                                  cyw43455_sdio_escan_timeout, s);
     s->fws_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
                                 cyw43455_sdio_fws_timeout, s);
 
@@ -5011,6 +5243,8 @@ static void cyw43455_sdio_unrealize(DeviceState *device)
     s->tx_credit_timer = NULL;
     timer_free(s->rx_glom_timer);
     s->rx_glom_timer = NULL;
+    timer_free(s->escan_timer);
+    s->escan_timer = NULL;
     timer_free(s->fws_timer);
     s->fws_timer = NULL;
     s->fws_retiring_count = 0;
@@ -5039,7 +5273,7 @@ static int cyw43455_sdio_post_load(void *opaque, int version_id)
     }
     if (version_id < 30) {
         cyw43455_sdio_reset_ap_state(s);
-        /* The old station model could not emit a five-GHz state stream. */
+        /* The original station stream could not contain a five-GHz BSS. */
         if ((s->chanspec | s->ap_chanspec) & CYW43455_CHANSPEC_BAND_MASK) {
             return -EINVAL;
         }
@@ -5135,6 +5369,15 @@ static int cyw43455_sdio_post_load(void *opaque, int version_id)
         s->rx_glom_ready = false;
         s->rx_glom_super_pending = false;
     }
+    if (version_id < 31) {
+        memset(s->armcr4_ram, 0, sizeof(s->armcr4_ram));
+        cyw43455_sdio_reset_country(s);
+        s->roam_trigger_5g = s->roam_trigger;
+        s->roam_delta_5g = s->roam_delta;
+        s->escan_event_ready = s->escan_event_phase !=
+                               CYW43455_ESCAN_EVENT_NONE;
+        timer_del(s->escan_timer);
+    }
     if (s->rx_glom_align < 4 || s->rx_glom_align > 128 ||
         (s->rx_glom_align & (s->rx_glom_align - 1)) ||
         s->rx_glom_count > s->rx_glom_max_frames ||
@@ -5169,7 +5412,8 @@ static int cyw43455_sdio_post_load(void *opaque, int version_id)
     if (s->nd_hostip_count > CYW43455_ND_HOSTIP_MAX) {
         return -EINVAL;
     }
-    if (s->escan_event_phase > CYW43455_ESCAN_EVENT_COMPLETE) {
+    if (s->escan_event_phase > CYW43455_ESCAN_EVENT_COMPLETE ||
+        (!s->escan_event_phase && s->escan_event_ready)) {
         return -EINVAL;
     }
     if (s->pfn_channel_count > CYW43455_PNO_MAX_CHANNELS ||
@@ -5185,8 +5429,7 @@ static int cyw43455_sdio_post_load(void *opaque, int version_id)
         return -EINVAL;
     }
     for (i = 0; i < s->pfn_channel_count; i++) {
-        if (s->pfn_channels[i] < CYW43455_CHANNEL_2G_MIN ||
-            s->pfn_channels[i] > CYW43455_CHANNEL_2G_MAX) {
+        if (!cyw43455_sdio_channel_supported(s->pfn_channels[i])) {
             return -EINVAL;
         }
     }
@@ -5197,8 +5440,7 @@ static int cyw43455_sdio_post_load(void *opaque, int version_id)
             return -EINVAL;
         }
     }
-    if ((s->ap_chanspec & CYW43455_CHANSPEC_BAND_MASK) ||
-        !cyw43455_sdio_chanspec_info(s->ap_chanspec, &control_channel,
+    if (!cyw43455_sdio_chanspec_info(s->ap_chanspec, &control_channel,
                                      &bandwidth_mhz) ||
         !cyw43455_sdio_chanspec_info(s->chanspec, &control_channel,
                                      &bandwidth_mhz) ||
@@ -5208,6 +5450,8 @@ static int cyw43455_sdio_post_load(void *opaque, int version_id)
         (s->qtxpower & ~(CYW43455_QTXPOWER_OVERRIDE |
                          CYW43455_QTXPOWER_MAX_QDBM)) ||
         s->mfp_mode > CYW43455_MFP_REQUIRED ||
+        !cyw43455_sdio_country_valid(s->country_abbrev,
+                                     s->country_code) ||
         s->survey_duration_ms > 60000 ||
         (s->survey_active && !s->survey_duration_ms)) {
         return -EINVAL;
@@ -5252,7 +5496,13 @@ static int cyw43455_sdio_pre_save(void *opaque)
 
 static const VMStateDescription cyw43455_sdio_vmstate = {
     .name = TYPE_CYW43455_SDIO,
-    .version_id = 30,
+    /*
+     * Preserve the private Pi5 v29/v30 layout.  Pi4 main assigned those
+     * numbers independently to RAM/country; importing that field ordering
+     * would reinterpret existing Pi5 streams.  New fields are appended here.
+     * Cross-fork Pi4/Pi5 migration is not a supported machine contract.
+     */
+    .version_id = 31,
     .minimum_version_id = 1,
     .pre_save = cyw43455_sdio_pre_save,
     .post_load = cyw43455_sdio_post_load,
@@ -5387,6 +5637,17 @@ static const VMStateDescription cyw43455_sdio_vmstate = {
         VMSTATE_UINT8_ARRAY_V(ap_ssid, CYW43455SDIOState,
                               CYW43455_AP_SSID_MAX, 30),
         VMSTATE_UINT8_V(ap_events, CYW43455SDIOState, 30),
+        VMSTATE_UINT8_ARRAY_V(armcr4_ram, CYW43455SDIOState,
+                              CYW43455_ARMCR4_RAM_SIZE, 31),
+        VMSTATE_UINT8_ARRAY_V(country_abbrev, CYW43455SDIOState,
+                              CYW43455_COUNTRY_BUF_SIZE, 31),
+        VMSTATE_UINT32_V(country_rev, CYW43455SDIOState, 31),
+        VMSTATE_UINT8_ARRAY_V(country_code, CYW43455SDIOState,
+                              CYW43455_COUNTRY_BUF_SIZE, 31),
+        VMSTATE_INT32_V(roam_trigger_5g, CYW43455SDIOState, 31),
+        VMSTATE_INT32_V(roam_delta_5g, CYW43455SDIOState, 31),
+        VMSTATE_BOOL_V(escan_event_ready, CYW43455SDIOState, 31),
+        VMSTATE_TIMER_PTR_V(escan_timer, CYW43455SDIOState, 31),
         VMSTATE_END_OF_LIST()
     },
 };
@@ -8467,6 +8728,9 @@ static const Property cyw43455_sdio_properties[] = {
                       rx_glom_max_frames, 1),
     DEFINE_PROP_UINT32("rx-glom-delay-ms", CYW43455SDIOState,
                        rx_glom_delay_ms, 1),
+    DEFINE_PROP_UINT32("escan-event-delay-ms", CYW43455SDIOState,
+                       escan_event_delay_ms,
+                       CYW43455_ESCAN_EVENT_DELAY_MS_DEFAULT),
     DEFINE_PROP_UINT32("ap-chanspec", CYW43455SDIOState,
                        ap_chanspec, CYW43455_CHANSPEC_2G_CH1_20MHZ),
 };

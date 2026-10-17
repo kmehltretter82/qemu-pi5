@@ -566,8 +566,8 @@ static void assert_station_bss(APFixture *f, bool include_ies)
     stw_le_p(bss + 16, 0x421); /* Open ESS, short preamble/slot; no privacy. */
     bss[18] = 13;
     memcpy(bss + 19, "qemu-cyw43455", 13);
-    stl_le_p(bss + 52, 1);
-    bss[56] = 144; /* Preserve the legacy station rate field byte-for-byte. */
+    stl_le_p(bss + 52, 4);
+    memcpy(bss + 56, "\x82\x84\x8b\x96", 4);
     stw_le_p(bss + 72, 0x1001); /* Remote BSS: 2.4 GHz channel1/20MHz. */
     bss[76] = 1;
     stw_le_p(bss + 78, (uint16_t)-28);

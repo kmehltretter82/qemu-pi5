@@ -28,7 +28,7 @@ sdhci_error(const char *msg) "%s"
 sdhci_response4(uint32_t r0) "RSPREG[31..0]=0x%08x"
 sdhci_response16(uint32_t r3, uint32_t r2, uint32_t r1, uint32_t r0) "RSPREG[127..96]=0x%08x, RSPREG[95..64]=0x%08x, RSPREG[63..32]=0x%08x, RSPREG[31..0]=0x%08x"
 sdhci_end_transfer(uint8_t cmd, uint32_t arg) "Automatically issue CMD%02u 0x%08x"
-sdhci_adma(const char *desc, uint64_t sysad) "%s: admasysaddr=0x%" PRIx64
+sdhci_adma(const char *desc, uint32_t sysad) "%s: admasysaddr=0x%" PRIx32
 sdhci_adma_loop(uint64_t addr, uint16_t length, uint8_t attr) "addr=0x%08" PRIx64 ", len=%d, attr=0x%x"
 sdhci_adma_transfer_completed(void) ""
 sdhci_access(const char *access, unsigned int size, uint64_t offset, const char *dir, uint64_t val, uint64_t val2) "%s%u: addr[0x%04" PRIx64 "] %s 0x%08" PRIx64 " (%" PRIu64 ")"
@@ -58,6 +58,7 @@ cyw43455_sdio_nd_reply(uint8_t a12, uint8_t a13, uint8_t a14, uint8_t a15) "synt
 cyw43455_sdio_station(uint32_t tx_packets, uint32_t rx_packets, uint64_t tx_bytes, uint64_t rx_bytes, int signal) "synthetic station info tx-packets=%" PRIu32 " rx-packets=%" PRIu32 " tx-bytes=%" PRIu64 " rx-bytes=%" PRIu64 " signal=%d"
 cyw43455_sdio_bss(uint16_t beacon, uint8_t dtim, int signal, int noise) "synthetic BSS info beacon=%u dtim=%u signal=%d noise=%d"
 cyw43455_sdio_escan_request(uint16_t sync_id, uint32_t version, uint32_t channels, uint32_t ssids, bool match) "synthetic escan request sync-id=0x%04x version=%" PRIu32 " channels=%" PRIu32 " ssids=%" PRIu32 " match=%u"
+cyw43455_sdio_escan_scheduled(uint16_t sync_id, bool partial, uint32_t delay_ms) "synthetic escan event scheduled sync-id=0x%04x partial=%u delay-ms=%" PRIu32
 cyw43455_sdio_escan_event(uint16_t sync_id, uint32_t status, bool partial, uint32_t length) "synthetic escan event sync-id=0x%04x status=%" PRIu32 " partial=%u length=%" PRIu32
 cyw43455_sdio_survey(uint32_t query, uint32_t chanspec, uint32_t duration, bool active) "synthetic survey query=%" PRIu32 " chanspec=0x%04" PRIx32 " duration-ms=%" PRIu32 " active=%u"
 cyw43455_sdio_bw_cap(bool set, uint32_t band, uint32_t capability, int32_t status) "synthetic bandwidth set=%u band=%" PRIu32 " capability=0x%" PRIx32 " status=%" PRId32
