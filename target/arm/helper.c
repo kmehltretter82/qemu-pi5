@@ -6355,7 +6355,9 @@ void register_cp_regs_for_features(ARMCPU *cpu)
     if (tcg_enabled()) {
         define_tlb_insn_regs(cpu);
         define_at_insn_regs(cpu);
-        define_gicv5_cpuif_regs(cpu);
+        if (cpu_isar_feature(aa64_gcie, cpu)) {
+            define_gicv5_cpuif_regs(cpu);
+        }
     }
 #endif
 
