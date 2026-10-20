@@ -14,6 +14,7 @@
 #define GEM_TXQBASE                 (GEM_BASE + 0x1c)
 #define GEM_ISR                     (GEM_BASE + 0x24)
 #define GEM_IER                     (GEM_BASE + 0x28)
+#define GEM_IDR                     (GEM_BASE + 0x2c)
 
 #define GEM_NWCTRL_ENABLE_TRANSMIT  (1U << 3)
 #define GEM_NWCTRL_TRANSMIT_START   (1U << 9)
@@ -97,6 +98,43 @@ static void test_default_synchronous_completion(void)
                   GEM_TX_DESC_USED);
     g_assert_cmphex(qtest_readl(qts, GEM_TXSTATUS) &
                     GEM_TXSTATUS_COMPLETE, ==, GEM_TXSTATUS_COMPLETE);
+    g_assert_cmphex(qtest_readl(qts, GEM_ISR) &
+                    GEM_ISR_XMIT_COMPLETE, ==, GEM_ISR_XMIT_COMPLETE);
+
+    qtest_quit(qts);
+}
+
+static void test_masked_completion_not_replayed(void)
+{
+    QTestState *qts = qtest_init(GEM_QEMU_ARGS);
+
+    gem_prepare_two_packet_ring(qts);
+    qtest_writel(qts, GEM_IDR, GEM_ISR_XMIT_COMPLETE);
+    gem_kick_tx(qts);
+
+    /*
+     * Cadence GEM does not propagate a completion into ISR when TCOMP is
+     * masked.  The descriptor ownership change remains visible, which lets
+     * a polling driver reclaim the packet without an interrupt.
+     */
+    g_assert_true(gem_read_tx_descriptor_control(qts, 0) &
+                  GEM_TX_DESC_USED);
+    g_assert_true(gem_read_tx_descriptor_control(qts, 1) &
+                  GEM_TX_DESC_USED);
+    g_assert_cmphex(qtest_readl(qts, GEM_ISR) &
+                    GEM_ISR_XMIT_COMPLETE, ==, 0);
+
+    /* Enabling TCOMP later must not synthesize or replay the lost event. */
+    qtest_writel(qts, GEM_IER, GEM_ISR_XMIT_COMPLETE);
+    g_assert_cmphex(qtest_readl(qts, GEM_ISR) &
+                    GEM_ISR_XMIT_COMPLETE, ==, 0);
+
+    /* A subsequent unmasked completion is reported normally. */
+    gem_write_tx_descriptor(qts, 0, GEM_TX_BUFFER0,
+                            GEM_TX_DESC_LAST | GEM_TX_DESC_WRAP);
+    gem_kick_tx(qts);
+    g_assert_true(gem_read_tx_descriptor_control(qts, 0) &
+                  GEM_TX_DESC_USED);
     g_assert_cmphex(qtest_readl(qts, GEM_ISR) &
                     GEM_ISR_XMIT_COMPLETE, ==, GEM_ISR_XMIT_COMPLETE);
 
@@ -307,6 +345,8 @@ int main(int argc, char **argv)
 
     qtest_add_func("/net/cadence-gem/default-synchronous",
                    test_default_synchronous_completion);
+    qtest_add_func("/net/cadence-gem/masked-completion",
+                   test_masked_completion_not_replayed);
     qtest_add_func("/net/cadence-gem/delayed-budget-reset",
                    test_delayed_budget_and_reset);
 #ifndef _WIN32
