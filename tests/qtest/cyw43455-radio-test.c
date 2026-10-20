@@ -421,6 +421,7 @@ static void migrate(Radio *source, Radio *dest)
     qtest_qmp_assert_success(dest->qts,
         "{ 'execute': 'migrate-incoming', 'arguments': { 'uri': %s } }", uri);
     wait_migration(dest->qts);
+    qtest_qmp_assert_success(dest->qts, "{ 'execute': 'cont' }");
     dest->request = source->request;
     dest->sequence = source->sequence;
     g_assert_cmpint(unlink(state), ==, 0);
@@ -433,6 +434,7 @@ static void test_scan_migration(gconstpointer machine)
     Radio dest = radio_init(machine, 0xd024, NULL, "-incoming defer");
     uint8_t frame[FRAME_MAX];
     size_t length;
+    int64_t source_time;
 
     select_card(&source);
     backplane(&source, false, RAM_BASE + RAM_SIZE - 4, 0x5a36abcd);
@@ -440,8 +442,15 @@ static void test_scan_migration(gconstpointer machine)
                           NULL, 0), ==, 0);
     start_scan(&source, 0xd024, 0x7e36);
     g_assert_cmpint(reply(&source, 263, NULL, 0, true), ==, 0);
-    qtest_clock_step(source.qts, 4 * NS_MS);
+    source_time = qtest_clock_step(source.qts, 4 * NS_MS);
+    g_assert_cmpint(source_time, ==, 4 * NS_MS);
     g_assert_false(pending(&source));
+    /*
+     * QTest's accelerator clock is process-local, not migration state.
+     * Device timers migrate absolute deadlines.  Align the destination
+     * before loading, retaining the exact 5 ms not-due / 6 ms due oracle.
+     */
+    g_assert_cmpint(qtest_clock_set(dest.qts, source_time), ==, source_time);
     migrate(&source, &dest);
     g_assert_cmphex(backplane(&dest, true, RAM_BASE + RAM_SIZE - 4, 0), ==,
                     0x5a36abcd);
