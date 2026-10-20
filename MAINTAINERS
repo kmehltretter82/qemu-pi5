@@ -1154,6 +1154,7 @@ F: hw/misc/zynq_slcr.c
 F: hw/adc/zynq-xadc.c
 F: include/hw/misc/xlnx-zynq-ddrc.h
 F: include/hw/adc/zynq-xadc.h
+F: tests/qtest/cadence-gem-test.c
 X: hw/ssi/xilinx_*
 F: docs/system/arm/xlnx-zynq.rst
 
