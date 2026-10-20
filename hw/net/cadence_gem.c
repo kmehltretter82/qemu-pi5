@@ -1279,21 +1279,49 @@ static void gem_transmit_updatestats(CadenceGEMState *s, const uint8_t *packet,
     }
 }
 
+static bool gem_tx_queue_pending(CadenceGEMState *s, int q)
+{
+    uint32_t desc[DESC_MAX_NUM_WORDS] = {};
+
+    if (!FIELD_EX32(s->regs[R_NWCTRL], NWCTRL, ENABLE_TRANSMIT)) {
+        return false;
+    }
+
+    address_space_read(&s->dma_as, gem_get_tx_desc_addr(s, q),
+                       MEMTXATTRS_UNSPECIFIED, desc,
+                       sizeof(uint32_t) * gem_get_desc_len(s, false));
+    return !tx_desc_get_used(desc);
+}
+
+static bool gem_tx_pending(CadenceGEMState *s)
+{
+    int q;
+
+    for (q = s->num_priority_queues - 1; q >= 0; q--) {
+        if (gem_tx_queue_pending(s, q)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 /*
  * gem_transmit:
  * Fish packets out of the descriptor ring and feed them to QEMU
  */
-static void gem_transmit(CadenceGEMState *s)
+static unsigned int gem_transmit(CadenceGEMState *s, unsigned int budget)
 {
     uint32_t desc[DESC_MAX_NUM_WORDS];
     hwaddr packet_desc_addr;
     uint8_t     *p;
     unsigned    total_bytes;
+    unsigned int completed = 0;
     int q = 0;
 
     /* Do nothing if transmit is not enabled. */
     if (!FIELD_EX32(s->regs[R_NWCTRL], NWCTRL, ENABLE_TRANSMIT)) {
-        return;
+        return 0;
     }
 
     DB_PRINT("\n");
@@ -1314,11 +1342,12 @@ static void gem_transmit(CadenceGEMState *s)
                            MEMTXATTRS_UNSPECIFIED, desc,
                            sizeof(uint32_t) * gem_get_desc_len(s, false));
         /* Handle all descriptors owned by hardware */
-        while (tx_desc_get_used(desc) == 0) {
+        while (tx_desc_get_used(desc) == 0 &&
+               (!budget || completed < budget)) {
 
             /* Do nothing if transmit is not enabled. */
             if (!FIELD_EX32(s->regs[R_NWCTRL], NWCTRL, ENABLE_TRANSMIT)) {
-                return;
+                return completed;
             }
             print_gem_tx_desc(desc, q);
 
@@ -1398,6 +1427,7 @@ static void gem_transmit(CadenceGEMState *s)
                     qemu_send_packet(qemu_get_queue(s->nic), s->tx_packet,
                                      total_bytes);
                 }
+                completed++;
 
                 /* Prepare for next packet */
                 p = s->tx_packet;
@@ -1431,6 +1461,40 @@ static void gem_transmit(CadenceGEMState *s)
             gem_update_int_status(s);
         }
     }
+
+    return completed;
+}
+
+static void gem_schedule_tx(CadenceGEMState *s)
+{
+    if (!s->tx_completion_delay_us || !gem_tx_pending(s) ||
+        timer_pending(&s->tx_completion_timer)) {
+        return;
+    }
+
+    timer_mod(&s->tx_completion_timer,
+              qemu_clock_get_us(QEMU_CLOCK_VIRTUAL) +
+              s->tx_completion_delay_us);
+}
+
+static void gem_tx_completion(void *opaque)
+{
+    CadenceGEMState *s = opaque;
+
+    if (gem_transmit(s, s->tx_completion_budget)) {
+        gem_schedule_tx(s);
+    }
+}
+
+static void gem_kick_tx(CadenceGEMState *s)
+{
+    if (s->tx_completion_delay_us) {
+        gem_schedule_tx(s);
+        return;
+    }
+
+    /* A budget without a delay must not change the legacy synchronous path. */
+    gem_transmit(s, 0);
 }
 
 static void gem_phy_reset(CadenceGEMState *s)
@@ -1466,6 +1530,8 @@ static void gem_reset(DeviceState *d)
     uint32_t queues_mask = 0;
 
     DB_PRINT("\n");
+
+    timer_del(&s->tx_completion_timer);
 
     /* Set post reset register values */
     memset(&s->regs[0], 0, sizeof(s->regs));
@@ -1662,10 +1728,11 @@ static void gem_write(void *opaque, hwaddr offset, uint64_t val,
             }
         }
         if (FIELD_EX32(val, NWCTRL, TRANSMIT_START)) {
-            gem_transmit(s);
+            gem_kick_tx(s);
         }
         if (!(FIELD_EX32(val, NWCTRL, ENABLE_TRANSMIT))) {
             /* Reset to start of Q when transmit disabled. */
+            timer_del(&s->tx_completion_timer);
             for (i = 0; i < s->num_priority_queues; i++) {
                 s->tx_desc_addr[i] = gem_get_tx_queue_base_addr(s, i);
             }
@@ -1803,16 +1870,54 @@ static void gem_init(Object *obj)
 
     DB_PRINT("\n");
 
+    timer_init_us(&s->tx_completion_timer, QEMU_CLOCK_VIRTUAL,
+                  gem_tx_completion, s);
     memory_region_init_io(&s->iomem, OBJECT(s), &gem_ops, s,
                           "enet", sizeof(s->regs));
 
     sysbus_init_mmio(SYS_BUS_DEVICE(dev), &s->iomem);
 }
 
+static void gem_finalize(Object *obj)
+{
+    CadenceGEMState *s = CADENCE_GEM(obj);
+
+    timer_del(&s->tx_completion_timer);
+    timer_deinit(&s->tx_completion_timer);
+}
+
+static int gem_post_load(void *opaque, int version_id)
+{
+    CadenceGEMState *s = opaque;
+
+    (void)version_id;
+    gem_update_int_status(s);
+    return 0;
+}
+
+static bool gem_tx_completion_timer_needed(void *opaque)
+{
+    CadenceGEMState *s = opaque;
+
+    return timer_pending(&s->tx_completion_timer);
+}
+
+static const VMStateDescription vmstate_gem_tx_completion_timer = {
+    .name = TYPE_CADENCE_GEM "/tx-completion-timer",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .needed = gem_tx_completion_timer_needed,
+    .fields = (const VMStateField[]) {
+        VMSTATE_TIMER(tx_completion_timer, CadenceGEMState),
+        VMSTATE_END_OF_LIST()
+    },
+};
+
 static const VMStateDescription vmstate_cadence_gem = {
     .name = "cadence_gem",
     .version_id = 4,
     .minimum_version_id = 4,
+    .post_load = gem_post_load,
     .fields = (const VMStateField[]) {
         VMSTATE_UINT32_ARRAY(regs, CadenceGEMState, CADENCE_GEM_MAXREG),
         VMSTATE_UINT16_ARRAY(phy_regs, CadenceGEMState, 32),
@@ -1823,7 +1928,11 @@ static const VMStateDescription vmstate_cadence_gem = {
                              MAX_PRIORITY_QUEUES),
         VMSTATE_BOOL_ARRAY(sar_active, CadenceGEMState, 4),
         VMSTATE_END_OF_LIST(),
-    }
+    },
+    .subsections = (const VMStateDescription * const []) {
+        &vmstate_gem_tx_completion_timer,
+        NULL
+    },
 };
 
 static const Property gem_properties[] = {
@@ -1844,6 +1953,10 @@ static const Property gem_properties[] = {
     DEFINE_PROP_BOOL("phy-connected", CadenceGEMState, phy_connected, true),
     DEFINE_PROP_LINK("phy-consumer", CadenceGEMState, phy_consumer,
                      TYPE_CADENCE_GEM, CadenceGEMState *),
+    DEFINE_PROP_UINT32("tx-completion-delay-us", CadenceGEMState,
+                       tx_completion_delay_us, 0),
+    DEFINE_PROP_UINT32("tx-completion-budget", CadenceGEMState,
+                       tx_completion_budget, 0),
 
     DEFINE_PROP_LINK("dma", CadenceGEMState, dma_mr,
                      TYPE_MEMORY_REGION, MemoryRegion *),
@@ -1864,6 +1977,7 @@ static const TypeInfo gem_info = {
     .parent = TYPE_SYS_BUS_DEVICE,
     .instance_size  = sizeof(CadenceGEMState),
     .instance_init = gem_init,
+    .instance_finalize = gem_finalize,
     .class_init = gem_class_init,
 };
 

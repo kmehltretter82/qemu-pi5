@@ -31,6 +31,7 @@ OBJECT_DECLARE_SIMPLE_TYPE(CadenceGEMState, CADENCE_GEM)
 
 #include "net/net.h"
 #include "hw/core/sysbus.h"
+#include "qemu/timer.h"
 
 #define CADENCE_GEM_MAXREG        (0x00000800 / 4) /* Last valid GEM address */
 
@@ -63,6 +64,10 @@ struct CadenceGEMState {
     uint32_t revision;
     uint16_t jumbo_max_len;
     bool pcs_enabled;
+
+    QEMUTimer tx_completion_timer;
+    uint32_t tx_completion_delay_us;
+    uint32_t tx_completion_budget;
 
     /* GEM registers backing store */
     uint32_t regs[CADENCE_GEM_MAXREG];
